@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import { modalStore } from '../../stores/useModalStore';
 import { editorStore } from '../../stores/useEditorStore';
+import {
+  Download,
+  Film,
+  CheckCircle2,
+  Folder,
+  X,
+  Sparkles,
+  Loader2
+} from 'lucide-react';
 
 export const ExportModal: React.FC = () => {
   const [resolution, setResolution] = useState<'1080p' | '720p'>('1080p');
@@ -23,23 +32,24 @@ export const ExportModal: React.FC = () => {
         }
         return prev + 10;
       });
-    }, 300);
+    }, 250);
   };
 
   return (
-    <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4 backdrop-blur-sm select-none">
-      <div className="w-[500px] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl overflow-hidden flex flex-col text-xs">
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm select-none">
+      <div className="w-[500px] bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl overflow-hidden flex flex-col text-xs">
         {/* Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
           <h2 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-            <span>🚀 Export Video</span>
+            <Download className="w-4 h-4 text-sky-400" />
+            <span>Export Video</span>
             <span className="text-slate-400 font-normal">({project.name})</span>
           </h2>
           <button
             onClick={() => modalStore.closeModal()}
-            className="text-slate-400 hover:text-slate-200 text-sm px-1.5"
+            className="text-slate-400 hover:text-slate-200 p-1 hover:bg-slate-800 rounded transition"
           >
-            ✕
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -50,25 +60,25 @@ export const ExportModal: React.FC = () => {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setResolution('1080p')}
-                className={`p-2.5 rounded border text-left transition ${
+                className={`p-3 rounded-lg border text-left transition ${
                   resolution === '1080p'
-                    ? 'bg-sky-950/60 border-sky-500 text-sky-200'
+                    ? 'bg-sky-950/60 border-sky-500 text-sky-200 shadow-md shadow-sky-500/10'
                     : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                 }`}
               >
-                <div className="font-bold">1080p Full HD</div>
-                <div className="text-[11px] opacity-70">1920 x 1080 • Standard Delivery</div>
+                <div className="font-bold text-xs text-slate-100">1080p Full HD</div>
+                <div className="text-[11px] opacity-70 mt-0.5">1920 x 1080 • Standard Delivery</div>
               </button>
               <button
                 onClick={() => setResolution('720p')}
-                className={`p-2.5 rounded border text-left transition ${
+                className={`p-3 rounded-lg border text-left transition ${
                   resolution === '720p'
-                    ? 'bg-sky-950/60 border-sky-500 text-sky-200'
+                    ? 'bg-sky-950/60 border-sky-500 text-sky-200 shadow-md shadow-sky-500/10'
                     : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                 }`}
               >
-                <div className="font-bold">720p Fast Preview</div>
-                <div className="text-[11px] opacity-70">1280 x 720 • Quick Social Export</div>
+                <div className="font-bold text-xs text-slate-100">720p Fast Preview</div>
+                <div className="text-[11px] opacity-70 mt-0.5">1280 x 720 • Quick Social Export</div>
               </button>
             </div>
           </div>
@@ -78,7 +88,7 @@ export const ExportModal: React.FC = () => {
             <select
               value={fps}
               onChange={(e) => setFps(parseInt(e.target.value, 10))}
-              className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-slate-200 focus:outline-none"
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 focus:outline-none cursor-pointer"
             >
               <option value={24}>24 fps (Cinematic)</option>
               <option value={30}>30 fps (Standard Web/Social)</option>
@@ -93,24 +103,28 @@ export const ExportModal: React.FC = () => {
                 type="text"
                 readOnly
                 value={`C:/Users/Kuro/Videos/${project.name.replace(/\s+/g, '_')}_1080p.mp4`}
-                className="flex-1 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-[11px] text-slate-400 font-mono"
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-400 font-mono"
               />
-              <button className="studio-btn studio-btn-secondary px-3 py-1.5 text-[11px]">
-                Browse...
+              <button className="studio-btn studio-btn-secondary px-3 py-1.5 text-[11px] flex items-center gap-1.5">
+                <Folder className="w-3.5 h-3.5 text-slate-400" />
+                <span>Browse</span>
               </button>
             </div>
           </div>
 
           {/* Render Progress Bar */}
           {isRendering && (
-            <div className="space-y-1.5 pt-2 border-t border-slate-800">
+            <div className="space-y-2 pt-2 border-t border-slate-800">
               <div className="flex justify-between text-slate-300 font-medium text-[11px]">
-                <span>Encoding FFmpeg Stream...</span>
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin" />
+                  <span>Encoding FFmpeg Stream...</span>
+                </span>
                 <span className="font-mono text-sky-400 font-bold">{progress}%</span>
               </div>
               <div className="w-full h-2 rounded bg-slate-950 overflow-hidden border border-slate-800">
                 <div
-                  className="h-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-300"
+                  className="h-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-300 shadow-lg shadow-sky-500/50"
                   style={{ width: `${progress}%` }}
                 />
               </div>
@@ -118,9 +132,12 @@ export const ExportModal: React.FC = () => {
           )}
 
           {progress === 100 && (
-            <div className="p-2.5 bg-emerald-950/50 border border-emerald-500/50 rounded text-emerald-300 text-xs flex items-center justify-between">
-              <span>✅ Video exported successfully!</span>
-              <button className="underline font-bold text-[11px]">Reveal File</button>
+            <div className="p-3 bg-emerald-950/60 border border-emerald-500/50 rounded-lg text-emerald-300 text-xs flex items-center justify-between shadow-md">
+              <span className="flex items-center gap-1.5 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>Video exported successfully!</span>
+              </span>
+              <button className="underline font-bold text-[11px] hover:text-emerald-200">Reveal File</button>
             </div>
           )}
         </div>
@@ -136,9 +153,10 @@ export const ExportModal: React.FC = () => {
           <button
             onClick={handleStartRender}
             disabled={isRendering}
-            className="studio-btn studio-btn-primary px-4 py-1.5 font-bold disabled:opacity-50"
+            className="studio-btn studio-btn-primary px-4 py-1.5 font-bold disabled:opacity-50 flex items-center gap-1.5 shadow-md"
           >
-            {isRendering ? 'Rendering...' : 'Start Export'}
+            <Download className="w-3.5 h-3.5" />
+            <span>{isRendering ? 'Rendering...' : 'Start Export'}</span>
           </button>
         </div>
       </div>

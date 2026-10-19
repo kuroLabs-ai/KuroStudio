@@ -4,17 +4,24 @@
   "private": true,
   "main": "./dist/main/index.js",
   "dependencies": {
-    "@kuro/shared": "workspace:*",
-    "@kuro/project-format": "workspace:*",
-    "@kuro/editor-core": "workspace:*",
-    "@kuro/ai-core": "workspace:*",
-    "@kuro/ai-providers": "workspace:*",
-    "@kuro/audio-engine": "workspace:*",
-    "@kuro/media-engine": "workspace:*",
-    "@kuro/remotion-bridge": "workspace:*",
-    "@kuro/store": "workspace:*"
+    "@kuro/ai-core": "*",
+    "@kuro/ai-providers": "*",
+    "@kuro/audio-engine": "*",
+    "@kuro/editor-core": "*",
+    "@kuro/media-engine": "*",
+    "@kuro/project-format": "*",
+    "@kuro/remotion-bridge": "*",
+    "@kuro/shared": "*",
+    "@kuro/store": "*",
+    "lucide-react": "^1.59.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.4"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "typecheck": "tsc --noEmit",
+    "electron": "electron ."
   }
 }

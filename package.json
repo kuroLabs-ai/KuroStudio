@@ -2,6 +2,7 @@
   "name": "kurostudio-monorepo",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "KuroStudio — Desktop video editor with an integrated multi-provider AI agent",
   "workspaces": [
     "packages/*",
@@ -11,7 +12,23 @@
     "build": "npm run --workspaces --if-present build",
     "test": "npm run --workspaces --if-present test",
     "typecheck": "npm run --workspaces --if-present typecheck",
-    "lint": "npm run --workspaces --if-present lint"
+    "lint": "npm run --workspaces --if-present lint",
+    "dev": "npm run --workspace=apps/desktop dev",
+    "electron": "npm run --workspace=apps/desktop electron"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "autoprefixer": "^10.4.21",
+    "concurrently": "^9.1.2",
+    "electron": "^35.2.1",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
   },
   "keywords": [
     "video-editor",
