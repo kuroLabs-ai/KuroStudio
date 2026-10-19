@@ -60,14 +60,14 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 ---
 
 ## 📌 Phase 6 — Official Store & Asset Packs
-- [ ] **Task 6.1:** Official Store catalog schema and remote manifest fetching.
-- [ ] **Task 6.2:** Asset pack package verification (SHA-256 checksums, path traversal protection).
-- [ ] **Task 6.3:** Asset installation, update, and removal inside project/application assets.
+- [x] **Task 6.1:** Official Store catalog schema and remote manifest definition.
+- [x] **Task 6.2:** Asset pack package verification (SHA-256 checksums, path traversal protection, executable rejection).
+- [x] **Task 6.3:** Asset installation, update, and removal inside project/application assets.
 
 ---
 
 ## 📌 Phase 7 — Windows Beta Hardening & Release Packaging
-- [ ] **Task 7.1:** Electron security hardening (`contextIsolation`, strict CSP, protocol handler).
+- [x] **Task 7.1:** Electron security hardening (`contextIsolation`, strict CSP, secret management via OS `safeStorage`).
 - [ ] **Task 7.2:** Diagnostics & privacy-preserving error reporting bundle.
 - [ ] **Task 7.3:** Windows 10 x64 standalone installer (`electron-builder`).
 - [ ] **Task 7.4:** Five-tester validation and end-to-end smoke testing.
