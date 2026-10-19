@@ -43,6 +43,11 @@ class EditorStore {
     this.notify();
   }
 
+  public markSaved(): void {
+    this.isDirty = false;
+    this.notify();
+  }
+
   public async executeCommand<T>(command: ICommand<T>): Promise<boolean> {
     const res = await this.commandBus.executeCommand(command);
     return res.success;
