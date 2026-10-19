@@ -207,34 +207,37 @@ export const PreviewMonitor: React.FC = () => {
           }}
         >
           {activeBlobUrl ? (
-            <video
-              ref={videoRef}
-              src={activeBlobUrl}
-              className="w-full h-full object-contain pointer-events-none"
-              muted={isMuted}
-              playsInline
-              onTimeUpdate={() => {
-                if (videoRef.current && activeClip && timelineStore.getIsPlaying()) {
-                  const clipTicks = Math.round(videoRef.current.currentTime * project.timelineTimebase);
-                  timelineStore.setPlayheadTicks(activeClip.timelineStartTicks + clipTicks);
-                }
-              }}
-              onEnded={() => timelineStore.setIsPlaying(false)}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center text-[var(--kuro-text-muted)] gap-2 p-6 text-center select-none">
-              <div className="w-12 h-12 rounded bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-subtle)] flex items-center justify-center text-[var(--kuro-text-secondary)]">
-                <Monitor className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="text-xs font-mono tracking-wider text-[var(--kuro-text-secondary)] font-medium">
-                  {project.width}x{project.height} @ {project.fpsNumerator}fps
-                </div>
-                <p className="text-[11px] text-[var(--kuro-text-muted)] mt-1 max-w-[220px]">
-                  Import media into Media Bin to preview video footage
-                </p>
-              </div>
+            activeAsset?.type === 'image' ? (
+              <img
+                src={activeBlobUrl}
+                alt={activeAsset.name}
+                className="w-full h-full object-contain pointer-events-none select-none"
+              />
+            ) : (
+              <video
+                ref={videoRef}
+                src={activeBlobUrl}
+                className="w-full h-full object-contain pointer-events-none"
+                muted={isMuted}
+                playsInline
+                onTimeUpdate={() => {
+                  if (videoRef.current && activeClip && timelineStore.getIsPlaying()) {
+                    const clipTicks = Math.round(videoRef.current.currentTime * project.timelineTimebase);
+                    timelineStore.setPlayheadTicks(activeClip.timelineStartTicks + clipTicks);
+                  }
+                }}
+                onEnded={() => timelineStore.setIsPlaying(false)}
+              />
+            )
+          ) : activeAsset?.metadata?.['isTitle'] ? (
+            <div className="w-full h-full bg-black flex items-center justify-center p-8 select-none">
+              <span className="text-white text-2xl font-bold tracking-wider drop-shadow-lg text-center uppercase">
+                {(activeAsset.metadata['text'] as string) || activeAsset.name}
+              </span>
             </div>
+          ) : (
+            /* Pure black screen when no clip or footage is active at playhead */
+            <div className="w-full h-full bg-black" />
           )}
 
           {/* Monochrome Safe Margins Overlay */}
