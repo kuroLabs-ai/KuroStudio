@@ -9,7 +9,9 @@
     { "path": "./packages/editor-core" },
     { "path": "./packages/ai-core" },
     { "path": "./packages/audio-engine" },
-    { "path": "./packages/media-engine" }
+    { "path": "./packages/media-engine" },
+    { "path": "./packages/remotion-bridge" },
+    { "path": "./packages/ai-providers" }
   ],
   "files": []
 }

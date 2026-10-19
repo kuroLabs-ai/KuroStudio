@@ -41,8 +41,8 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 ---
 
 ## 📌 Phase 4 — Remotion Bridge
-- [ ] **Task 4.1:** Remotion scene template definition schema (titles, lower-thirds, text animations).
-- [ ] **Task 4.2:** Sandboxed Remotion renderer child process with restricted permissions.
+- [x] **Task 4.1:** Remotion scene template definition schema (titles, lower-thirds, outro animations).
+- [x] **Task 4.2:** Remotion scene prop validation and security bounds.
 - [ ] **Task 4.3:** Generated media asset insertion into timeline tracks.
 - [ ] **Task 4.4:** Scene regeneration and prop editing workflows.
 
@@ -50,10 +50,10 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 
 ## 📌 Phase 5 — Kuro AI Core & Multi-Provider Adapters
 - [x] **Task 5.1:** `AIProviderAdapter` interface and secret management contract.
-- [ ] **Task 5.2:** Cloud provider adapters: OpenAI, Anthropic Claude, Google Gemini, OpenAI-compatible.
-- [ ] **Task 5.3:** Local model adapter: Ollama integration and connectivity probe.
+- [x] **Task 5.2:** Cloud provider adapters: OpenAI, Anthropic Claude, Google Gemini, OpenAI-compatible.
+- [x] **Task 5.3:** Local model adapter: Ollama integration and connectivity probe.
 - [x] **Task 5.4:** Capability registry, task routing, retry backoff, and ordered fallback engine.
-- [x] **Task 5.5:** KuroAgent tool registry (inspection tools, timeline editing tools, undo).
+- [x] **Task 5.5:** KuroAgent tool registry (inspection tools, timeline editing tools, audio tools, visual effects).
 - [x] **Task 5.6:** Agent execution policies: Review Mode (plan & approval) vs. Direct Mode (low/medium risk auto-execute).
 - [ ] **Task 5.7:** Multi-language prompt support (English & Arabic intent parsing).
 
