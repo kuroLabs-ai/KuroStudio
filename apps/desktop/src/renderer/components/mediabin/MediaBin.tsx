@@ -315,6 +315,7 @@ export const MediaBin: React.FC = () => {
                 draggable={true}
                 onDragStart={(e) => {
                   e.dataTransfer.setData('application/kuro-asset', JSON.stringify(asset));
+                  e.dataTransfer.setData('text/plain', JSON.stringify({ kuroType: 'asset', data: asset }));
                   e.dataTransfer.effectAllowed = 'copyMove';
                 }}
                 onClick={() => handleAddAssetToTimeline(asset)}

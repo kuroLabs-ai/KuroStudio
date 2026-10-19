@@ -173,6 +173,7 @@ export const TitlesPanel: React.FC = () => {
               draggable={true}
               onDragStart={(e) => {
                 e.dataTransfer.setData('application/kuro-title', JSON.stringify(preset));
+                e.dataTransfer.setData('text/plain', JSON.stringify({ kuroType: 'title', data: preset }));
                 e.dataTransfer.effectAllowed = 'copyMove';
               }}
               className="group p-2.5 rounded-lg border flex items-center justify-between gap-3 transition hover:shadow-sm cursor-grab active:cursor-grabbing"

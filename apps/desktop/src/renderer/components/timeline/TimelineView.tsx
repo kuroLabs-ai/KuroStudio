@@ -11,7 +11,7 @@ import {
 } from '@kuro/editor-core';
 import { layoutStore } from '../../stores/useLayoutStore';
 import { generateId } from '@kuro/shared';
-import { AssetReference, Clip } from '@kuro/project-format';
+import { AssetReference, Clip, Track, TransitionInstance } from '@kuro/project-format';
 import {
   Scissors,
   Trash2,
@@ -26,7 +26,8 @@ import {
   ChevronDown,
   Layers,
   Sparkles,
-  X
+  X,
+  Plus
 } from 'lucide-react';
 
 export const TimelineView: React.FC = () => {
@@ -35,7 +36,7 @@ export const TimelineView: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
 
-  // Drag and Drop State
+  // Drag and Drop Hover States
   const [dragOverTrackId, setDragOverTrackId] = useState<string | null>(null);
   const [dragOverCutId, setDragOverCutId] = useState<string | null>(null);
   const [dragOverClipId, setDragOverClipId] = useState<string | null>(null);
@@ -118,144 +119,284 @@ export const TimelineView: React.FC = () => {
 
   const handleRemoveTransition = (transId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const currentProj = editorStore.getProject();
     const updated = {
-      ...project,
-      transitions: project.transitions.filter((t) => t.id !== transId),
+      ...currentProj,
+      transitions: currentProj.transitions.filter((t) => t.id !== transId),
     };
     editorStore.getEditorState().setProject(updated);
   };
 
-  // Helper to place a clip on track without overlapping
+  // Find guaranteed collision-free start time on track
+  const findAvailableStart = (track: Track, requestedStart: number, duration: number): number => {
+    const sorted = [...track.clips].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
+    let start = Math.max(0, requestedStart);
+
+    let collision = true;
+    let guard = 0;
+    while (collision && guard < 100) {
+      guard++;
+      collision = false;
+      const end = start + duration;
+      for (const c of sorted) {
+        const cEnd = c.timelineStartTicks + c.durationTicks;
+        if (start < cEnd && end > c.timelineStartTicks) {
+          start = cEnd; // push right after the colliding clip
+          collision = true;
+          break;
+        }
+      }
+    }
+    return start;
+  };
+
+  // Safely insert clip and ensure UI re-renders
   const safelyInsertClip = async (trackId: string, clip: Clip) => {
-    const track = project.tracks.find((t) => t.id === trackId);
+    const currentProj = editorStore.getProject();
+    const track = currentProj.tracks.find((t) => t.id === trackId);
     if (!track) return;
 
-    let targetStart = clip.timelineStartTicks;
-    const clipDuration = clip.durationTicks;
-
-    // Check collision
-    const collides = (start: number) => {
-      const end = start + clipDuration;
-      return track.clips.some((c) => start < c.timelineStartTicks + c.durationTicks && end > c.timelineStartTicks);
+    const start = findAvailableStart(track, clip.timelineStartTicks, clip.durationTicks);
+    const finalClip: Clip = {
+      ...clip,
+      trackId,
+      timelineStartTicks: start,
+      sourceInTicks: 0,
+      sourceOutTicks: clip.durationTicks,
     };
 
-    if (collides(targetStart)) {
-      // Find nearest empty spot after targetStart
-      let maxEnd = 0;
-      for (const c of track.clips) {
-        const cEnd = c.timelineStartTicks + c.durationTicks;
-        if (cEnd > maxEnd) maxEnd = cEnd;
-      }
-      targetStart = maxEnd;
+    const cmd = new AddClipCommand(finalClip, trackId);
+    const success = await editorStore.executeCommand(cmd);
+
+    if (!success) {
+      // Direct insertion fallback to guarantee clip is added
+      const updatedTracks = currentProj.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        const newClips = [...t.clips, finalClip].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
+        return { ...t, clips: newClips };
+      });
+      editorStore.getEditorState().setProject({
+        ...currentProj,
+        tracks: updatedTracks,
+      });
     }
 
-    const finalClip = { ...clip, timelineStartTicks: targetStart };
-    await editorStore.executeCommand(new AddClipCommand(finalClip, trackId));
     timelineStore.selectClip(finalClip.id);
   };
 
-  // Drop on track lane (Assets, Titles, Audio, Transitions)
+  // Apply transition between two clips
+  const handleApplyTransitionBetween = async (
+    outgoingClipId: string,
+    incomingClipId: string,
+    transType: string = 'cross-dissolve',
+    durationSec: number = 1.0
+  ) => {
+    const currentProj = editorStore.getProject();
+    const durTicks = Math.max(1, Math.round(durationSec * currentProj.timelineTimebase));
+
+    // Remove any existing transition between these two clips first
+    const cleanTransitions = currentProj.transitions.filter(
+      (t) => !(t.outgoingClipId === outgoingClipId && t.incomingClipId === incomingClipId)
+    );
+
+    const newTrans: TransitionInstance = {
+      id: generateId('trans'),
+      transitionType: transType as 'cross-dissolve' | 'fade-to-black' | 'hard-cut',
+      durationTicks: durTicks,
+      outgoingClipId,
+      incomingClipId,
+    };
+
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      transitions: [...cleanTransitions, newTrans],
+    });
+  };
+
+  // Track Drop Handler (Clips, Titles, Audio, Transitions, Files)
   const handleTrackDrop = async (trackId: string, e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOverTrackId(null);
 
-    const track = project.tracks.find((t) => t.id === trackId);
+    const currentProj = editorStore.getProject();
+    const track = currentProj.tracks.find((t) => t.id === trackId);
     if (!track) return;
 
     const laneRect = e.currentTarget.getBoundingClientRect();
     const dropX = e.clientX - laneRect.left;
     const dropTicks = Math.max(0, Math.round(dropX / pixelsPerTick));
 
-    // 1. Asset Drop from Media Bin
-    const assetData = e.dataTransfer.getData('application/kuro-asset');
-    if (assetData) {
+    // 1. Read Payload (supporting both custom MIME and text/plain fallback)
+    let rawAsset = e.dataTransfer.getData('application/kuro-asset');
+    let rawTitle = e.dataTransfer.getData('application/kuro-title');
+    let rawAudio = e.dataTransfer.getData('application/kuro-audio');
+    let rawTrans = e.dataTransfer.getData('application/kuro-transition');
+    let rawEffect = e.dataTransfer.getData('application/kuro-effect');
+
+    const plainText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+    if (plainText) {
       try {
-        const asset: AssetReference = JSON.parse(assetData);
-        const durationTicks = asset.durationTicks || Math.round(5.0 * project.timelineTimebase);
+        const parsed = JSON.parse(plainText);
+        if (parsed.kuroType === 'asset') rawAsset = JSON.stringify(parsed.data);
+        else if (parsed.kuroType === 'title') rawTitle = JSON.stringify(parsed.data);
+        else if (parsed.kuroType === 'audio') rawAudio = JSON.stringify(parsed.data);
+        else if (parsed.kuroType === 'transition') rawTrans = JSON.stringify(parsed.data);
+        else if (parsed.kuroType === 'effect') rawEffect = JSON.stringify(parsed.data);
+      } catch {
+        // Not a JSON string
+      }
+    }
+
+    // 2. Direct external file drop from Desktop / File Explorer
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      const blobUrl = URL.createObjectURL(file);
+      const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|ogg)$/i.test(file.name);
+      const assetId = generateId('asset');
+      const durationTicks = Math.round(5.0 * currentProj.timelineTimebase);
+      const newAsset: AssetReference = {
+        id: assetId,
+        name: file.name,
+        type: isAudio ? 'audio' : 'video',
+        storageMode: 'linked',
+        filePath: file.name,
+        fileSizeBytes: file.size,
+        durationTicks,
+        metadata: { blobUrl, mimeType: file.type },
+      };
+      editorStore.getEditorState().setProject({
+        ...currentProj,
+        assets: [...currentProj.assets, newAsset],
+      });
+      rawAsset = JSON.stringify(newAsset);
+    }
+
+    // 3. Asset Drop from Media Bin
+    if (rawAsset) {
+      try {
+        const asset: AssetReference = JSON.parse(rawAsset);
+        const clipDuration = asset.durationTicks || Math.round(5.0 * currentProj.timelineTimebase);
         const newClip: Clip = {
           id: generateId('clip'),
           assetId: asset.id,
+          trackId: track.id,
           timelineStartTicks: dropTicks,
-          durationTicks,
-          inPointTicks: 0,
-          outPointTicks: durationTicks,
+          durationTicks: clipDuration,
+          sourceInTicks: 0,
+          sourceOutTicks: clipDuration,
           effects: [],
           audio: asset.type === 'audio' || asset.type === 'video' ? { volume: 1.0 } : undefined,
         };
-        await safelyInsertClip(trackId, newClip);
-        return;
-      } catch {
-        // ignore parse error
-      }
-    }
-
-    // 2. Title Drop from Titles Panel
-    const titleData = e.dataTransfer.getData('application/kuro-title');
-    if (titleData) {
-      try {
-        const titlePreset = JSON.parse(titleData);
-        const durationTicks = Math.round(4.0 * project.timelineTimebase);
-        const newClip: Clip = {
-          id: generateId('clip_title'),
-          assetId: generateId('asset_title'),
-          timelineStartTicks: dropTicks,
-          durationTicks,
-          inPointTicks: 0,
-          outPointTicks: durationTicks,
-          effects: [],
-        };
-        await safelyInsertClip(trackId, newClip);
+        await safelyInsertClip(track.id, newClip);
         return;
       } catch {
         // ignore
       }
     }
 
-    // 3. Audio Drop from Audio Panel
-    const audioData = e.dataTransfer.getData('application/kuro-audio');
-    if (audioData) {
+    // 4. Title Drop from Titles Panel
+    if (rawTitle) {
       try {
-        const audioSample = JSON.parse(audioData);
-        const durationTicks = Math.round((audioSample.durationSec || 2.0) * project.timelineTimebase);
+        const titlePreset = JSON.parse(rawTitle);
+        const durationTicks = Math.round(4.0 * currentProj.timelineTimebase);
+        const assetId = generateId('asset_title');
+        const newAsset: AssetReference = {
+          id: assetId,
+          name: titlePreset.name,
+          type: 'video',
+          storageMode: 'linked',
+          filePath: 'title://' + titlePreset.id,
+          fileSizeBytes: 0,
+          durationTicks,
+          metadata: { isTitle: true, text: titlePreset.defaultText },
+        };
+        const latestProj = editorStore.getProject();
+        editorStore.getEditorState().setProject({
+          ...latestProj,
+          assets: [...latestProj.assets, newAsset],
+        });
+
         const newClip: Clip = {
-          id: generateId('clip_audio'),
-          assetId: generateId('asset_audio'),
+          id: generateId('clip_title'),
+          assetId,
+          trackId: track.id,
           timelineStartTicks: dropTicks,
           durationTicks,
-          inPointTicks: 0,
-          outPointTicks: durationTicks,
+          sourceInTicks: 0,
+          sourceOutTicks: durationTicks,
+          effects: [],
+        };
+        await safelyInsertClip(track.id, newClip);
+        return;
+      } catch {
+        // ignore
+      }
+    }
+
+    // 5. Audio Drop from Audio Panel
+    if (rawAudio) {
+      try {
+        const audioSample = JSON.parse(rawAudio);
+        const durationTicks = Math.round((audioSample.durationSec || 3.0) * currentProj.timelineTimebase);
+        const assetId = generateId('asset_audio');
+        const newAsset: AssetReference = {
+          id: assetId,
+          name: audioSample.name,
+          type: 'audio',
+          storageMode: 'linked',
+          filePath: 'audio://' + audioSample.id,
+          fileSizeBytes: 0,
+          durationTicks,
+          metadata: { isAudioSample: true, synthesizeType: audioSample.synthesizeType },
+        };
+        const latestProj = editorStore.getProject();
+        editorStore.getEditorState().setProject({
+          ...latestProj,
+          assets: [...latestProj.assets, newAsset],
+        });
+
+        const newClip: Clip = {
+          id: generateId('clip_audio'),
+          assetId,
+          trackId: track.id,
+          timelineStartTicks: dropTicks,
+          durationTicks,
+          sourceInTicks: 0,
+          sourceOutTicks: durationTicks,
           audio: { volume: 1.0 },
           effects: [],
         };
-        await safelyInsertClip(trackId, newClip);
+        await safelyInsertClip(track.id, newClip);
         return;
       } catch {
         // ignore
       }
     }
 
-    // 4. Transition Drop on Track Lane (Find nearest cut between clips)
-    const transitionData = e.dataTransfer.getData('application/kuro-transition');
-    if (transitionData) {
+    // 6. Transition Drop on Track Lane (Find closest cut seam between adjacent clips)
+    if (rawTrans) {
       try {
-        const transDef = JSON.parse(transitionData);
+        const transDef = JSON.parse(rawTrans);
         if (track.clips.length >= 2) {
-          // Sort clips by start time
           const sorted = [...track.clips].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
+          let closestDist = Infinity;
+          let bestCut: [string, string] | null = null;
+
           for (let i = 0; i < sorted.length - 1; i++) {
             const outClip = sorted[i];
             const inClip = sorted[i + 1];
             const cutTicks = outClip.timelineStartTicks + outClip.durationTicks;
-            const cutDistTicks = Math.abs(dropTicks - cutTicks);
-            const toleranceTicks = Math.round(3.0 * project.timelineTimebase); // 3 second proximity
-
-            if (cutDistTicks < toleranceTicks) {
-              const durTicks = Math.round((transDef.durationSec || 1.0) * project.timelineTimebase);
-              await editorStore.executeCommand(
-                new AddTransitionCommand(transDef.type, outClip.id, inClip.id, durTicks)
-              );
-              return;
+            const dist = Math.abs(dropTicks - cutTicks);
+            if (dist < closestDist) {
+              closestDist = dist;
+              bestCut = [outClip.id, inClip.id];
             }
+          }
+
+          if (bestCut) {
+            await handleApplyTransitionBetween(bestCut[0], bestCut[1], transDef.type, transDef.durationSec || 1.0);
+            return;
           }
         }
       } catch {
@@ -264,7 +405,7 @@ export const TimelineView: React.FC = () => {
     }
   };
 
-  // Drop transition on exact cut point between adjacent clips
+  // Drop transition on exact cut notch between adjacent clips
   const handleDropTransitionOnCut = async (
     outgoingClipId: string,
     incomingClipId: string,
@@ -274,22 +415,31 @@ export const TimelineView: React.FC = () => {
     e.stopPropagation();
     setDragOverCutId(null);
 
-    const transitionData = e.dataTransfer.getData('application/kuro-transition');
-    if (transitionData) {
+    let rawTrans = e.dataTransfer.getData('application/kuro-transition');
+    const plainText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+    if (plainText) {
       try {
-        const transDef = JSON.parse(transitionData);
-        const durTicks = Math.round((transDef.durationSec || 1.0) * project.timelineTimebase);
-        await editorStore.executeCommand(
-          new AddTransitionCommand(transDef.type, outgoingClipId, incomingClipId, durTicks)
-        );
+        const parsed = JSON.parse(plainText);
+        if (parsed.kuroType === 'transition') rawTrans = JSON.stringify(parsed.data);
       } catch {
-        // fallback default cross-dissolve
-        const durTicks = Math.round(1.0 * project.timelineTimebase);
-        await editorStore.executeCommand(
-          new AddTransitionCommand('cross-dissolve', outgoingClipId, incomingClipId, durTicks)
-        );
+        // ignore
       }
     }
+
+    let transType = 'cross-dissolve';
+    let durationSec = 1.0;
+
+    if (rawTrans) {
+      try {
+        const transDef = JSON.parse(rawTrans);
+        if (transDef.type) transType = transDef.type;
+        if (transDef.durationSec) durationSec = transDef.durationSec;
+      } catch {
+        // fallback default
+      }
+    }
+
+    await handleApplyTransitionBetween(outgoingClipId, incomingClipId, transType, durationSec);
   };
 
   // Drop effect directly onto a clip
@@ -298,10 +448,20 @@ export const TimelineView: React.FC = () => {
     e.stopPropagation();
     setDragOverClipId(null);
 
-    const effectData = e.dataTransfer.getData('application/kuro-effect');
-    if (effectData) {
+    let rawEffect = e.dataTransfer.getData('application/kuro-effect');
+    const plainText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+    if (plainText) {
       try {
-        const fxDef = JSON.parse(effectData);
+        const parsed = JSON.parse(plainText);
+        if (parsed.kuroType === 'effect') rawEffect = JSON.stringify(parsed.data);
+      } catch {
+        // ignore
+      }
+    }
+
+    if (rawEffect) {
+      try {
+        const fxDef = JSON.parse(rawEffect);
         await editorStore.executeCommand(
           new ApplyEffectCommand(clipId, {
             effectType: fxDef.effectType,
@@ -409,7 +569,7 @@ export const TimelineView: React.FC = () => {
         className="flex-1 overflow-x-auto overflow-y-auto flex relative select-none"
       >
         {/* Track Headers (Left sticky sidebar) */}
-        <div className="w-40 bg-[var(--kuro-bg-panel)] border-r border-[var(--kuro-border-subtle)] shrink-0 sticky left-0 z-30 shadow-sm">
+        <div className="w-40 bg-[var(--kuro-bg-panel)] border-r border-[var(--kuro-border-subtle)] shrink-0 sticky left-0 z-40 shadow-sm">
           <div className="h-6 border-b border-[var(--kuro-border-subtle)] bg-[var(--kuro-bg-canvas)] px-2.5 flex items-center text-[9px] text-[var(--kuro-text-muted)] font-mono uppercase tracking-wider">
             TRACKS ({project.tracks.length})
           </div>
@@ -465,7 +625,7 @@ export const TimelineView: React.FC = () => {
 
           {/* Draggable Playhead Needle */}
           <div
-            className="absolute top-0 bottom-0 w-px bg-[var(--kuro-playhead)] z-40 pointer-events-none"
+            className="absolute top-0 bottom-0 w-px bg-[var(--kuro-playhead)] z-50 pointer-events-none"
             style={{ left: `${playheadLeftPx}px` }}
           >
             <div className="w-2.5 h-2.5 bg-[var(--kuro-playhead)] -translate-x-[4px] -translate-y-1 rotate-45 shadow-sm" />
@@ -484,6 +644,7 @@ export const TimelineView: React.FC = () => {
                 key={track.id}
                 onDragOver={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   e.dataTransfer.dropEffect = 'copy';
                   setDragOverTrackId(track.id);
                 }}
@@ -493,14 +654,14 @@ export const TimelineView: React.FC = () => {
                 onDrop={(e) => handleTrackDrop(track.id, e)}
                 className={`h-16 border-b border-[var(--kuro-border-subtle)] relative transition-colors ${
                   isTrackOver
-                    ? 'bg-[var(--kuro-bg-hover)] ring-1 ring-inset ring-white/30'
+                    ? 'bg-[var(--kuro-bg-hover)] ring-1 ring-inset ring-white/40'
                     : 'bg-[var(--kuro-bg-base)]/40'
                 }`}
               >
                 {/* 1. Clips */}
                 {sortedClips.map((clip) => {
                   const clipLeft = clip.timelineStartTicks * pixelsPerTick;
-                  const clipWidth = Math.max(32, clip.durationTicks * pixelsPerTick);
+                  const clipWidth = Math.max(36, clip.durationTicks * pixelsPerTick);
                   const isSelected = selectedClipIds.includes(clip.id);
                   const isClipOver = dragOverClipId === clip.id;
                   const asset = project.assets.find((a) => a.id === clip.assetId);
@@ -513,23 +674,22 @@ export const TimelineView: React.FC = () => {
                         timelineStore.selectClip(clip.id);
                       }}
                       onDragOver={(e) => {
-                        if (e.dataTransfer.types.includes('application/kuro-effect')) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setDragOverClipId(clip.id);
-                        }
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = 'copy';
+                        setDragOverClipId(clip.id);
                       }}
                       onDragLeave={() => setDragOverClipId(null)}
                       onDrop={(e) => handleDropEffectOnClip(clip.id, e)}
-                      className={`absolute top-1 bottom-1 rounded-sm border text-xs font-medium cursor-pointer transition select-none flex flex-col justify-between overflow-hidden shadow-sm z-10 ${
+                      className={`absolute top-1 bottom-1 rounded border text-xs font-medium cursor-pointer transition select-none flex flex-col justify-between overflow-hidden shadow-sm z-10 ${
                         track.kind === 'video'
                           ? 'bg-[var(--kuro-track-video)] text-[var(--kuro-text-primary)] border-[var(--kuro-border-strong)]'
                           : 'bg-[var(--kuro-track-audio)] text-[var(--kuro-text-secondary)] border-[var(--kuro-border-base)]'
-                      } ${isSelected ? 'ring-1 ring-white border-white brightness-125' : 'hover:brightness-110'} ${
+                      } ${isSelected ? 'ring-2 ring-white border-white brightness-125' : 'hover:brightness-110'} ${
                         isClipOver ? 'ring-2 ring-white border-white scale-[1.01]' : ''
                       }`}
                       style={{ left: `${clipLeft}px`, width: `${clipWidth}px` }}
-                      title={isClipOver ? 'Drop effect here' : `${asset?.name ?? clip.id} (Click to inspect)`}
+                      title={isClipOver ? 'Drop effect to apply to this clip' : `${asset?.name ?? clip.id}`}
                     >
                       {/* Background real thumbnail if video */}
                       {asset?.thumbnailPath && (
@@ -539,11 +699,11 @@ export const TimelineView: React.FC = () => {
                         />
                       )}
 
-                      <div className="relative z-10 px-2 py-0.5 flex items-center justify-between text-[11px] truncate font-medium bg-black/40">
+                      <div className="relative z-10 px-2 py-0.5 flex items-center justify-between text-[11px] truncate font-medium bg-black/50">
                         <span className="truncate font-semibold">{asset?.name ?? clip.id}</span>
                         <div className="flex items-center gap-1 shrink-0 ml-1">
                           {clip.effects && clip.effects.length > 0 && (
-                            <span className="text-[9px] bg-white/20 px-1 rounded flex items-center gap-0.5 font-mono">
+                            <span className="text-[9px] bg-white text-black font-bold px-1 rounded flex items-center gap-0.5 font-mono">
                               <Sparkles className="w-2.5 h-2.5" />
                               {clip.effects.length} FX
                             </span>
@@ -555,7 +715,7 @@ export const TimelineView: React.FC = () => {
                       </div>
 
                       {/* Monochrome Waveform / Visual Rhythm Bars */}
-                      <div className="relative z-10 h-2.5 px-2 flex items-end gap-0.5 opacity-30 pointer-events-none">
+                      <div className="relative z-10 h-2.5 px-2 flex items-end gap-0.5 opacity-35 pointer-events-none">
                         {Array.from({ length: Math.min(40, Math.floor(clipWidth / 6)) }).map((_, idx) => (
                           <div
                             key={idx}
@@ -568,7 +728,7 @@ export const TimelineView: React.FC = () => {
                   );
                 })}
 
-                {/* 2. Transition Cut Dropzones between Adjacent Clips */}
+                {/* 2. Transition Cut Seams & Drop Slots between Adjacent Clips */}
                 {sortedClips.map((clipA, i) => {
                   const clipB = sortedClips[i + 1];
                   if (!clipB) return null;
@@ -577,6 +737,14 @@ export const TimelineView: React.FC = () => {
                   const cutX = cutTicks * pixelsPerTick;
                   const cutId = `${clipA.id}_${clipB.id}`;
                   const isCutHovered = dragOverCutId === cutId;
+
+                  // Check if a transition already exists at this cut
+                  const existingTrans = project.transitions.find(
+                    (t) => t.outgoingClipId === clipA.id && t.incomingClipId === clipB.id
+                  );
+
+                  // If transition exists, the transition block itself is rendered below
+                  if (existingTrans) return null;
 
                   return (
                     <div
@@ -589,29 +757,43 @@ export const TimelineView: React.FC = () => {
                       }}
                       onDragLeave={() => setDragOverCutId(null)}
                       onDrop={(e) => handleDropTransitionOnCut(clipA.id, clipB.id, e)}
-                      className={`absolute top-0 bottom-0 w-8 -ml-4 z-20 flex items-center justify-center cursor-pointer transition ${
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleApplyTransitionBetween(clipA.id, clipB.id, 'cross-dissolve', 1.0);
+                      }}
+                      className={`absolute top-0 bottom-0 z-20 flex items-center justify-center cursor-pointer transition-all ${
                         isCutHovered
-                          ? 'bg-white/25 ring-1 ring-white'
-                          : 'hover:bg-white/10'
+                          ? 'w-14 -ml-7 bg-white/30 border-2 border-dashed border-white shadow-lg'
+                          : 'w-6 -ml-3 hover:bg-white/15'
                       }`}
                       style={{ left: `${cutX}px` }}
-                      title="Cut point: Drop transition here"
+                      title="Cut Point: Click or drop transition here"
                     >
                       <div
                         className={`w-0.5 h-full transition ${
-                          isCutHovered ? 'bg-white shadow-[0_0_8px_white]' : 'bg-white/25'
+                          isCutHovered ? 'bg-white shadow-[0_0_8px_white]' : 'bg-white/40'
                         }`}
                       />
+
+                      {/* Tactile + Transition Button indicator */}
+                      <div
+                        className={`w-4 h-4 rounded-full border border-white flex items-center justify-center shadow transition-transform ${
+                          isCutHovered ? 'scale-125 bg-white text-black' : 'bg-black/80 text-white hover:scale-110'
+                        }`}
+                      >
+                        <Plus className="w-2.5 h-2.5" />
+                      </div>
+
                       {isCutHovered && (
-                        <div className="absolute top-1 bg-white text-black text-[9px] font-bold px-1 rounded shadow">
-                          Drop Transition
+                        <div className="absolute -top-5 bg-white text-black text-[9px] font-bold px-1.5 py-0.5 rounded shadow-md whitespace-nowrap">
+                          + Drop Transition
                         </div>
                       )}
                     </div>
                   );
                 })}
 
-                {/* 3. Existing Transitions Display on Track */}
+                {/* 3. Prominent Physical Transition Blocks on Track */}
                 {project.transitions
                   .filter((t) => {
                     const hasOut = sortedClips.some((c) => c.id === t.outgoingClipId);
@@ -623,36 +805,54 @@ export const TimelineView: React.FC = () => {
                     if (!outClip) return null;
 
                     const cutTicks = outClip.timelineStartTicks + outClip.durationTicks;
-                    const transWidth = Math.max(32, trans.durationTicks * pixelsPerTick);
+                    // Prominent width: at least 56px so it gives physical space and presence
+                    const transWidth = Math.max(56, trans.durationTicks * pixelsPerTick);
                     const transLeft = cutTicks * pixelsPerTick - transWidth / 2;
 
                     return (
                       <div
                         key={trans.id}
-                        className="absolute top-1.5 bottom-1.5 z-25 rounded border border-white/80 bg-black/90 text-white flex items-center justify-between px-1.5 shadow-lg text-[10px] select-none group"
+                        className="absolute top-0.5 bottom-0.5 z-30 rounded-md border-2 border-white text-white flex items-center justify-between px-2 shadow-2xl text-[10px] select-none group cursor-pointer transition hover:scale-[1.02]"
                         style={{
                           left: `${transLeft}px`,
                           width: `${transWidth}px`,
+                          backgroundColor: '#0a0a0a',
                           backgroundImage:
-                            'repeating-linear-gradient(45deg, rgba(255,255,255,0.06), rgba(255,255,255,0.06) 4px, transparent 4px, transparent 8px)',
+                            'repeating-linear-gradient(45deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 5px, rgba(10,10,10,0.95) 5px, rgba(10,10,10,0.95) 10px)',
                         }}
                         title={`Transition: ${trans.transitionType} (${(
                           trans.durationTicks / project.timelineTimebase
                         ).toFixed(1)}s)`}
                       >
-                        <div className="flex items-center gap-1 truncate pointer-events-none">
-                          <Layers className="w-3 h-3 text-white shrink-0" />
-                          <span className="truncate text-[9px] font-mono capitalize tracking-tight">
-                            {trans.transitionType.replace('-', ' ')}
-                          </span>
+                        {/* Left clip bridge tab */}
+                        <div className="absolute left-0 top-1 bottom-1 w-1 bg-white rounded-r-sm" />
+
+                        {/* Center Icon & Transition Label */}
+                        <div className="flex items-center gap-1.5 truncate pointer-events-none z-10">
+                          <div className="w-5 h-5 rounded bg-white text-black flex items-center justify-center shrink-0 shadow">
+                            <Layers className="w-3 h-3" />
+                          </div>
+                          <div className="truncate">
+                            <span className="font-extrabold uppercase text-[10px] tracking-wider block text-white drop-shadow">
+                              {trans.transitionType.replace('-', ' ')}
+                            </span>
+                            <span className="text-[9px] font-mono text-white/80 block">
+                              {(trans.durationTicks / project.timelineTimebase).toFixed(1)}s
+                            </span>
+                          </div>
                         </div>
-                        <button
-                          onClick={(e) => handleRemoveTransition(trans.id, e)}
-                          className="opacity-0 group-hover:opacity-100 hover:bg-white/20 p-0.5 rounded transition text-white/80 hover:text-white"
-                          title="Remove Transition"
-                        >
-                          <X className="w-2.5 h-2.5" />
-                        </button>
+
+                        {/* Right clip bridge tab & Delete button on hover */}
+                        <div className="flex items-center gap-1 z-10">
+                          <button
+                            onClick={(e) => handleRemoveTransition(trans.id, e)}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded bg-black/80 hover:bg-white hover:text-black border border-white text-white transition shadow"
+                            title="Remove Transition"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <div className="absolute right-0 top-1 bottom-1 w-1 bg-white rounded-l-sm" />
                       </div>
                     );
                   })}

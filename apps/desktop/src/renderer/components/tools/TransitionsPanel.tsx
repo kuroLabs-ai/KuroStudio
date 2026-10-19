@@ -237,7 +237,9 @@ export const TransitionsPanel: React.FC = () => {
               key={item.id}
               draggable={true}
               onDragStart={(e) => {
-                e.dataTransfer.setData('application/kuro-transition', JSON.stringify({ ...item, durationSec }));
+                const payload = { ...item, durationSec };
+                e.dataTransfer.setData('application/kuro-transition', JSON.stringify(payload));
+                e.dataTransfer.setData('text/plain', JSON.stringify({ kuroType: 'transition', data: payload }));
                 e.dataTransfer.effectAllowed = 'copyMove';
               }}
               className="group p-2.5 rounded-lg border flex items-center justify-between gap-3 transition hover:shadow-sm cursor-grab active:cursor-grabbing"

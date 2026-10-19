@@ -189,6 +189,7 @@ export const EffectsPanel: React.FC = () => {
               draggable={true}
               onDragStart={(e) => {
                 e.dataTransfer.setData('application/kuro-effect', JSON.stringify(fx));
+                e.dataTransfer.setData('text/plain', JSON.stringify({ kuroType: 'effect', data: fx }));
                 e.dataTransfer.effectAllowed = 'copyMove';
               }}
               className="group p-2.5 rounded-lg border flex items-center justify-between gap-3 transition hover:shadow-sm cursor-grab active:cursor-grabbing"

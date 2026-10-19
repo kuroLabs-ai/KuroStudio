@@ -253,6 +253,7 @@ export const AudioPanel: React.FC = () => {
               draggable={true}
               onDragStart={(e) => {
                 e.dataTransfer.setData('application/kuro-audio', JSON.stringify(sample));
+                e.dataTransfer.setData('text/plain', JSON.stringify({ kuroType: 'audio', data: sample }));
                 e.dataTransfer.effectAllowed = 'copyMove';
               }}
               className="group p-2.5 rounded-lg border flex items-center justify-between gap-3 transition hover:shadow-sm cursor-grab active:cursor-grabbing"
