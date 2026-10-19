@@ -7,7 +7,8 @@ import {
   MuteTrackCommand,
   AddClipCommand,
   AddTransitionCommand,
-  ApplyEffectCommand
+  ApplyEffectCommand,
+  MoveClipCommand
 } from '@kuro/editor-core';
 import { layoutStore } from '../../stores/useLayoutStore';
 import { generateId } from '@kuro/shared';
@@ -27,7 +28,8 @@ import {
   Layers,
   Sparkles,
   X,
-  Plus
+  Plus,
+  MoveHorizontal
 } from 'lucide-react';
 
 export const TimelineView: React.FC = () => {
@@ -40,6 +42,15 @@ export const TimelineView: React.FC = () => {
   const [dragOverTrackId, setDragOverTrackId] = useState<string | null>(null);
   const [dragOverCutId, setDragOverCutId] = useState<string | null>(null);
   const [dragOverClipId, setDragOverClipId] = useState<string | null>(null);
+
+  // Clip Repositioning (Live Moving) State
+  const [movingClip, setMovingClip] = useState<{
+    clipId: string;
+    trackId: string;
+    originalTicks: number;
+    currentTicks: number;
+    startX: number;
+  } | null>(null);
 
   useEffect(() => {
     const unsubEditor = editorStore.subscribe(() => setTick((t) => t + 1));
@@ -59,6 +70,141 @@ export const TimelineView: React.FC = () => {
   const basePixelsPerSecond = 50;
   const pixelsPerSecond = basePixelsPerSecond * zoom;
   const pixelsPerTick = pixelsPerSecond / project.timelineTimebase;
+
+  // Horizontal Wheel Scroll & Ctrl+Wheel Zoom Listener
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        // Zoom timeline
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.2 : -0.2;
+        timelineStore.setZoom(Math.max(0.2, Math.min(4.0, timelineStore.getZoom() + delta)));
+        return;
+      }
+
+      // Smooth horizontal scroll
+      if (Math.abs(e.deltaY) > 0 || Math.abs(e.deltaX) > 0) {
+        e.preventDefault();
+        container.scrollLeft += e.deltaX !== 0 ? e.deltaX : e.deltaY;
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  // Live Clip Moving Drag Handler
+  useEffect(() => {
+    if (!movingClip) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - movingClip.startX;
+      const deltaTicks = Math.round(deltaX / pixelsPerTick);
+      let proposed = Math.max(0, movingClip.originalTicks + deltaTicks);
+
+      // Snap logic
+      if (timelineStore.getIsSnappingEnabled()) {
+        const snapThresholdTicks = Math.round(16 / pixelsPerTick);
+        // Snap to playhead
+        if (Math.abs(proposed - playheadTicks) < snapThresholdTicks) {
+          proposed = playheadTicks;
+        } else if (proposed < snapThresholdTicks) {
+          proposed = 0;
+        } else {
+          // Snap to other clip boundaries on this track
+          const track = project.tracks.find((t) => t.id === movingClip.trackId);
+          const activeClip = track?.clips.find((c) => c.id === movingClip.clipId);
+          if (track && activeClip) {
+            for (const other of track.clips) {
+              if (other.id === movingClip.clipId) continue;
+              const otherEnd = other.timelineStartTicks + other.durationTicks;
+              // Snap start to otherEnd
+              if (Math.abs(proposed - otherEnd) < snapThresholdTicks) {
+                proposed = otherEnd;
+                break;
+              }
+              // Snap end to otherStart
+              const proposedEnd = proposed + activeClip.durationTicks;
+              if (Math.abs(proposedEnd - other.timelineStartTicks) < snapThresholdTicks) {
+                proposed = Math.max(0, other.timelineStartTicks - activeClip.durationTicks);
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      setMovingClip((prev) => (prev ? { ...prev, currentTicks: proposed } : null));
+    };
+
+    const handleMouseUp = async () => {
+      if (movingClip && movingClip.currentTicks !== movingClip.originalTicks) {
+        await moveClipSafely(movingClip.clipId, movingClip.currentTicks, movingClip.trackId);
+      }
+      setMovingClip(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [movingClip, pixelsPerTick, playheadTicks, project]);
+
+  // Safely move clip to new position with collision handling
+  const moveClipSafely = async (clipId: string, desiredTicks: number, trackId: string) => {
+    const currentProj = editorStore.getProject();
+    const track = currentProj.tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    const clip = track.clips.find((c) => c.id === clipId);
+    if (!clip) return;
+
+    let finalTicks = Math.max(0, desiredTicks);
+    const otherClips = track.clips.filter((c) => c.id !== clipId);
+
+    const collides = (start: number) => {
+      const end = start + clip.durationTicks;
+      return otherClips.some((c) => start < c.timelineStartTicks + c.durationTicks && end > c.timelineStartTicks);
+    };
+
+    if (collides(finalTicks)) {
+      // Find nearest non-colliding spot
+      const collidingClip = otherClips.find(
+        (c) => finalTicks < c.timelineStartTicks + c.durationTicks && finalTicks + clip.durationTicks > c.timelineStartTicks
+      );
+      if (collidingClip) {
+        if (finalTicks >= collidingClip.timelineStartTicks) {
+          finalTicks = collidingClip.timelineStartTicks + collidingClip.durationTicks;
+        } else {
+          finalTicks = Math.max(0, collidingClip.timelineStartTicks - clip.durationTicks);
+        }
+      }
+    }
+
+    const cmd = new MoveClipCommand(clipId, finalTicks, trackId);
+    const success = await editorStore.executeCommand(cmd);
+
+    if (!success) {
+      // Fallback direct state update
+      const updatedTracks = currentProj.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        const newClips = t.clips
+          .map((c) => (c.id === clipId ? { ...c, timelineStartTicks: finalTicks } : c))
+          .sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
+        return { ...t, clips: newClips };
+      });
+      editorStore.getEditorState().setProject({
+        ...currentProj,
+        tracks: updatedTracks,
+      });
+    }
+
+    timelineStore.selectClip(clipId);
+  };
 
   const updatePlayheadFromClientX = (clientX: number) => {
     if (!rulerRef.current) return;
@@ -169,7 +315,7 @@ export const TimelineView: React.FC = () => {
     const success = await editorStore.executeCommand(cmd);
 
     if (!success) {
-      // Direct insertion fallback to guarantee clip is added
+      // Direct insertion fallback
       const updatedTracks = currentProj.tracks.map((t) => {
         if (t.id !== trackId) return t;
         const newClips = [...t.clips, finalClip].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
@@ -194,7 +340,6 @@ export const TimelineView: React.FC = () => {
     const currentProj = editorStore.getProject();
     const durTicks = Math.max(1, Math.round(durationSec * currentProj.timelineTimebase));
 
-    // Remove any existing transition between these two clips first
     const cleanTransitions = currentProj.transitions.filter(
       (t) => !(t.outgoingClipId === outgoingClipId && t.incomingClipId === incomingClipId)
     );
@@ -227,7 +372,6 @@ export const TimelineView: React.FC = () => {
     const dropX = e.clientX - laneRect.left;
     const dropTicks = Math.max(0, Math.round(dropX / pixelsPerTick));
 
-    // 1. Read Payload (supporting both custom MIME and text/plain fallback)
     let rawAsset = e.dataTransfer.getData('application/kuro-asset');
     let rawTitle = e.dataTransfer.getData('application/kuro-title');
     let rawAudio = e.dataTransfer.getData('application/kuro-audio');
@@ -244,11 +388,11 @@ export const TimelineView: React.FC = () => {
         else if (parsed.kuroType === 'transition') rawTrans = JSON.stringify(parsed.data);
         else if (parsed.kuroType === 'effect') rawEffect = JSON.stringify(parsed.data);
       } catch {
-        // Not a JSON string
+        // Not JSON
       }
     }
 
-    // 2. Direct external file drop from Desktop / File Explorer
+    // Direct desktop file drag & drop
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
       const blobUrl = URL.createObjectURL(file);
@@ -272,7 +416,6 @@ export const TimelineView: React.FC = () => {
       rawAsset = JSON.stringify(newAsset);
     }
 
-    // 3. Asset Drop from Media Bin
     if (rawAsset) {
       try {
         const asset: AssetReference = JSON.parse(rawAsset);
@@ -295,7 +438,6 @@ export const TimelineView: React.FC = () => {
       }
     }
 
-    // 4. Title Drop from Titles Panel
     if (rawTitle) {
       try {
         const titlePreset = JSON.parse(rawTitle);
@@ -334,7 +476,6 @@ export const TimelineView: React.FC = () => {
       }
     }
 
-    // 5. Audio Drop from Audio Panel
     if (rawAudio) {
       try {
         const audioSample = JSON.parse(rawAudio);
@@ -374,7 +515,6 @@ export const TimelineView: React.FC = () => {
       }
     }
 
-    // 6. Transition Drop on Track Lane (Find closest cut seam between adjacent clips)
     if (rawTrans) {
       try {
         const transDef = JSON.parse(rawTrans);
@@ -435,7 +575,7 @@ export const TimelineView: React.FC = () => {
         if (transDef.type) transType = transDef.type;
         if (transDef.durationSec) durationSec = transDef.durationSec;
       } catch {
-        // fallback default
+        // fallback
       }
     }
 
@@ -563,10 +703,10 @@ export const TimelineView: React.FC = () => {
         </div>
       </div>
 
-      {/* Timeline Scroll Area */}
+      {/* Timeline Scroll Area (Dedicated Highly Visible Horizontal Scrollbar + Mouse Wheel Pan) */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-x-auto overflow-y-auto flex relative select-none"
+        className="flex-1 overflow-x-auto overflow-y-auto flex relative select-none kuro-timeline-scroll"
       >
         {/* Track Headers (Left sticky sidebar) */}
         <div className="w-40 bg-[var(--kuro-bg-panel)] border-r border-[var(--kuro-border-subtle)] shrink-0 sticky left-0 z-40 shadow-sm">
@@ -604,7 +744,7 @@ export const TimelineView: React.FC = () => {
         </div>
 
         {/* Tracks Content & Time Ruler */}
-        <div className="flex-1 relative min-w-[2800px]">
+        <div className="flex-1 relative min-w-[3200px]">
           {/* Time Ruler (Interactive Scrubbing) */}
           <div
             ref={rulerRef}
@@ -612,7 +752,7 @@ export const TimelineView: React.FC = () => {
             className="h-6 bg-[var(--kuro-bg-surface)] border-b border-[var(--kuro-border-subtle)] relative cursor-ew-resize select-none"
             title="Click or drag to scrub playhead"
           >
-            {Array.from({ length: 60 }).map((_, i) => (
+            {Array.from({ length: 70 }).map((_, i) => (
               <div
                 key={i}
                 className="absolute top-0 bottom-0 border-l border-[var(--kuro-border-subtle)] text-[9px] font-mono text-[var(--kuro-text-muted)] pl-1 flex items-center pointer-events-none"
@@ -658,9 +798,12 @@ export const TimelineView: React.FC = () => {
                     : 'bg-[var(--kuro-bg-base)]/40'
                 }`}
               >
-                {/* 1. Clips */}
+                {/* 1. Clips (Interactive Drag-to-Move across timeline) */}
                 {sortedClips.map((clip) => {
-                  const clipLeft = clip.timelineStartTicks * pixelsPerTick;
+                  const isBeingMoved = movingClip?.clipId === clip.id;
+                  const displayTicks = isBeingMoved ? movingClip.currentTicks : clip.timelineStartTicks;
+
+                  const clipLeft = displayTicks * pixelsPerTick;
                   const clipWidth = Math.max(36, clip.durationTicks * pixelsPerTick);
                   const isSelected = selectedClipIds.includes(clip.id);
                   const isClipOver = dragOverClipId === clip.id;
@@ -669,9 +812,17 @@ export const TimelineView: React.FC = () => {
                   return (
                     <div
                       key={clip.id}
-                      onClick={(e) => {
+                      onMouseDown={(e) => {
                         e.stopPropagation();
                         timelineStore.selectClip(clip.id);
+                        // Initiate live repositioning / moving
+                        setMovingClip({
+                          clipId: clip.id,
+                          trackId: track.id,
+                          originalTicks: clip.timelineStartTicks,
+                          currentTicks: clip.timelineStartTicks,
+                          startX: e.clientX,
+                        });
                       }}
                       onDragOver={(e) => {
                         e.preventDefault();
@@ -681,15 +832,19 @@ export const TimelineView: React.FC = () => {
                       }}
                       onDragLeave={() => setDragOverClipId(null)}
                       onDrop={(e) => handleDropEffectOnClip(clip.id, e)}
-                      className={`absolute top-1 bottom-1 rounded border text-xs font-medium cursor-pointer transition select-none flex flex-col justify-between overflow-hidden shadow-sm z-10 ${
+                      className={`absolute top-1 bottom-1 rounded border text-xs font-medium transition-all select-none flex flex-col justify-between overflow-hidden shadow-sm z-10 cursor-grab active:cursor-grabbing ${
                         track.kind === 'video'
                           ? 'bg-[var(--kuro-track-video)] text-[var(--kuro-text-primary)] border-[var(--kuro-border-strong)]'
                           : 'bg-[var(--kuro-track-audio)] text-[var(--kuro-text-secondary)] border-[var(--kuro-border-base)]'
                       } ${isSelected ? 'ring-2 ring-white border-white brightness-125' : 'hover:brightness-110'} ${
-                        isClipOver ? 'ring-2 ring-white border-white scale-[1.01]' : ''
-                      }`}
+                        isBeingMoved ? 'opacity-90 ring-2 ring-white scale-[1.02] z-40 shadow-2xl' : ''
+                      } ${isClipOver ? 'ring-2 ring-white border-white scale-[1.01]' : ''}`}
                       style={{ left: `${clipLeft}px`, width: `${clipWidth}px` }}
-                      title={isClipOver ? 'Drop effect to apply to this clip' : `${asset?.name ?? clip.id}`}
+                      title={
+                        isBeingMoved
+                          ? `Moving to ${(displayTicks / project.timelineTimebase).toFixed(2)}s`
+                          : `${asset?.name ?? clip.id} (Click and drag to move along timeline)`
+                      }
                     >
                       {/* Background real thumbnail if video */}
                       {asset?.thumbnailPath && (
@@ -700,7 +855,10 @@ export const TimelineView: React.FC = () => {
                       )}
 
                       <div className="relative z-10 px-2 py-0.5 flex items-center justify-between text-[11px] truncate font-medium bg-black/50">
-                        <span className="truncate font-semibold">{asset?.name ?? clip.id}</span>
+                        <div className="flex items-center gap-1 truncate">
+                          <MoveHorizontal className="w-2.5 h-2.5 opacity-60 shrink-0" />
+                          <span className="truncate font-semibold">{asset?.name ?? clip.id}</span>
+                        </div>
                         <div className="flex items-center gap-1 shrink-0 ml-1">
                           {clip.effects && clip.effects.length > 0 && (
                             <span className="text-[9px] bg-white text-black font-bold px-1 rounded flex items-center gap-0.5 font-mono">
@@ -709,7 +867,9 @@ export const TimelineView: React.FC = () => {
                             </span>
                           )}
                           <span className="text-[10px] opacity-75 font-mono">
-                            {((clip.durationTicks / project.timelineTimebase)).toFixed(1)}s
+                            {isBeingMoved
+                              ? `${(displayTicks / project.timelineTimebase).toFixed(1)}s`
+                              : `${(clip.durationTicks / project.timelineTimebase).toFixed(1)}s`}
                           </span>
                         </div>
                       </div>
@@ -743,7 +903,6 @@ export const TimelineView: React.FC = () => {
                     (t) => t.outgoingClipId === clipA.id && t.incomingClipId === clipB.id
                   );
 
-                  // If transition exists, the transition block itself is rendered below
                   if (existingTrans) return null;
 
                   return (
@@ -775,7 +934,6 @@ export const TimelineView: React.FC = () => {
                         }`}
                       />
 
-                      {/* Tactile + Transition Button indicator */}
                       <div
                         className={`w-4 h-4 rounded-full border border-white flex items-center justify-center shadow transition-transform ${
                           isCutHovered ? 'scale-125 bg-white text-black' : 'bg-black/80 text-white hover:scale-110'
@@ -805,7 +963,6 @@ export const TimelineView: React.FC = () => {
                     if (!outClip) return null;
 
                     const cutTicks = outClip.timelineStartTicks + outClip.durationTicks;
-                    // Prominent width: at least 56px so it gives physical space and presence
                     const transWidth = Math.max(56, trans.durationTicks * pixelsPerTick);
                     const transLeft = cutTicks * pixelsPerTick - transWidth / 2;
 
@@ -824,10 +981,8 @@ export const TimelineView: React.FC = () => {
                           trans.durationTicks / project.timelineTimebase
                         ).toFixed(1)}s)`}
                       >
-                        {/* Left clip bridge tab */}
                         <div className="absolute left-0 top-1 bottom-1 w-1 bg-white rounded-r-sm" />
 
-                        {/* Center Icon & Transition Label */}
                         <div className="flex items-center gap-1.5 truncate pointer-events-none z-10">
                           <div className="w-5 h-5 rounded bg-white text-black flex items-center justify-center shrink-0 shadow">
                             <Layers className="w-3 h-3" />
@@ -842,7 +997,6 @@ export const TimelineView: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Right clip bridge tab & Delete button on hover */}
                         <div className="flex items-center gap-1 z-10">
                           <button
                             onClick={(e) => handleRemoveTransition(trans.id, e)}
