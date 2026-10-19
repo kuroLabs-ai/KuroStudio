@@ -72,15 +72,26 @@ export const TimelineView: React.FC = () => {
   const pixelsPerTick = pixelsPerSecond / project.timelineTimebase;
 
   // Track Categorization for NLE Layer Stacking Order:
-  // Overlays / Titles on top -> Main Video (V1) in middle -> Main Audio (A1) -> Lower Audio on bottom
+  // Overlay video tracks (added via +V) on TOP
+  // Main Video (V1) – the FIRST video track created – in the middle
+  // Main Audio (A1) – the FIRST audio track created – below video
+  // Extra audio tracks (added via +A) at the BOTTOM
   const videoTracks = project.tracks.filter((t) => t.kind === 'video');
   const audioTracks = project.tracks.filter((t) => t.kind === 'audio');
 
-  // Main video is the base video track (V1), main audio is A1
-  const mainVideoTrack = videoTracks[videoTracks.length - 1] || videoTracks[0];
+  // V1 = last in the list because +V always prepends; A1 = first audio track
+  const mainVideoTrack = videoTracks[videoTracks.length - 1] ?? videoTracks[0];
   const mainAudioTrack = audioTracks[0];
 
-  const orderedTracks = [...videoTracks, ...audioTracks];
+  // overlays on top, main video below them, then main audio, then extra audio
+  const overlayTracks = videoTracks.filter((t) => t.id !== mainVideoTrack?.id);
+  const extraAudioTracks = audioTracks.filter((t) => t.id !== mainAudioTrack?.id);
+  const orderedTracks = [
+    ...overlayTracks,
+    ...(mainVideoTrack ? [mainVideoTrack] : []),
+    ...(mainAudioTrack ? [mainAudioTrack] : []),
+    ...extraAudioTracks,
+  ];
 
   // Horizontal Wheel Scroll & Ctrl+Wheel Zoom Listener
   useEffect(() => {
@@ -812,47 +823,75 @@ export const TimelineView: React.FC = () => {
           </div>
 
           {/* Track Headers List in NLE Stacking Order */}
-          {orderedTracks.map((track) => {
+          {orderedTracks.map((track, trackIndex) => {
             const isMainVideo = track.id === mainVideoTrack?.id;
             const isMainAudio = track.id === mainAudioTrack?.id;
-            const isCustomTrack = !isMainVideo && !isMainAudio;
+            const isOverlay = track.kind === 'video' && !isMainVideo;
+            const isExtraAudio = track.kind === 'audio' && !isMainAudio;
+            const isCustomTrack = isOverlay || isExtraAudio;
+
+            // Human-readable label for display
+            const trackLabel = isMainVideo
+              ? 'V1: Main Video'
+              : isMainAudio
+              ? 'A1: Main Audio'
+              : isOverlay
+              ? `V${videoTracks.length - videoTracks.indexOf(track)}: Overlay`
+              : `A${audioTracks.indexOf(track) + 1}: Audio`;
+
+            const subLabel = isMainVideo
+              ? 'Media & Photos'
+              : isOverlay
+              ? 'Titles / Overlay'
+              : `${track.clips.length} clip${track.clips.length !== 1 ? 's' : ''}`;
 
             return (
               <div
                 key={track.id}
-                className="h-16 px-2.5 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs font-medium bg-[var(--kuro-bg-panel)] transition-colors group"
+                className={`h-14 px-2 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs font-medium transition-colors group ${
+                  isMainVideo
+                    ? 'bg-[var(--kuro-bg-panel)]'
+                    : isMainAudio
+                    ? 'bg-[var(--kuro-bg-surface)]'
+                    : isOverlay
+                    ? 'bg-[var(--kuro-bg-elevated)]'
+                    : 'bg-[var(--kuro-bg-base)]'
+                }`}
               >
-                <div className="flex items-center gap-2 truncate">
-                  <div className="w-5 h-5 rounded-sm bg-[var(--kuro-bg-surface)] text-[var(--kuro-text-secondary)] flex items-center justify-center shrink-0 border border-[var(--kuro-border-subtle)]">
+                <div className="flex items-center gap-1.5 truncate min-w-0">
+                  {/* Layer color accent bar */}
+                  <div
+                    className={`w-0.5 self-stretch rounded-full shrink-0 ${
+                      isOverlay
+                        ? 'bg-white/60'
+                        : isMainVideo
+                        ? 'bg-white'
+                        : isMainAudio
+                        ? 'bg-white/40'
+                        : 'bg-white/20'
+                    }`}
+                  />
+                  <div className="w-5 h-5 rounded-sm bg-[var(--kuro-bg-canvas)] text-[var(--kuro-text-secondary)] flex items-center justify-center shrink-0 border border-[var(--kuro-border-subtle)]">
                     {track.kind === 'video' ? <Video className="w-3 h-3" /> : <Music className="w-3 h-3" />}
                   </div>
-                  <div className="truncate">
-                    <div className="flex items-center gap-1">
-                      <span className="truncate text-xs text-[var(--kuro-text-primary)] font-semibold block">
-                        {isMainVideo
-                          ? 'V1: Main Video'
-                          : isMainAudio
-                          ? 'A1: Main Audio'
-                          : track.name}
+                  <div className="truncate min-w-0">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className={`truncate text-[11px] font-semibold block ${isMainVideo || isMainAudio ? 'text-[var(--kuro-text-primary)]' : 'text-[var(--kuro-text-secondary)]'}`}>
+                        {trackLabel}
                       </span>
-                      {isMainVideo && (
-                        <span className="text-[8px] bg-white text-black font-black px-1 rounded-xs tracking-tighter shadow-xs">
-                          MAIN
-                        </span>
-                      )}
-                      {isMainAudio && (
-                        <span className="text-[8px] bg-white text-black font-black px-1 rounded-xs tracking-tighter shadow-xs">
+                      {(isMainVideo || isMainAudio) && (
+                        <span className="text-[8px] bg-white text-black font-black px-1 rounded tracking-tighter shadow-xs shrink-0">
                           MAIN
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-[var(--kuro-text-muted)] font-mono block">
-                      {isMainVideo ? 'Media & Photos' : `${track.clips.length} clips`}
+                    <span className="text-[9px] text-[var(--kuro-text-muted)] font-mono block truncate">
+                      {subLabel}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                   {/* Delete Track button for custom added layers */}
                   {isCustomTrack && (
                     <button
@@ -916,6 +955,9 @@ export const TimelineView: React.FC = () => {
           {orderedTracks.map((track) => {
             const sortedClips = [...track.clips].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
             const isTrackOver = dragOverTrackId === track.id;
+            const isMainVideo = track.id === mainVideoTrack?.id;
+            const isMainAudio = track.id === mainAudioTrack?.id;
+            const isOverlay = track.kind === 'video' && !isMainVideo;
 
             return (
               <div
@@ -944,10 +986,16 @@ export const TimelineView: React.FC = () => {
                   setDragOverTrackId(null);
                 }}
                 onDrop={(e) => handleTrackDrop(track.id, e)}
-                className={`h-16 border-b border-[var(--kuro-border-subtle)] relative transition-colors ${
+                className={`h-14 border-b border-[var(--kuro-border-subtle)] relative transition-colors ${
                   isTrackOver
                     ? 'bg-[var(--kuro-bg-hover)] ring-1 ring-inset ring-white/40'
-                    : 'bg-[var(--kuro-bg-base)]/40'
+                    : isMainVideo
+                    ? 'bg-[var(--kuro-bg-base)]/60'
+                    : isOverlay
+                    ? 'bg-[var(--kuro-bg-elevated)]/40'
+                    : isMainAudio
+                    ? 'bg-[var(--kuro-bg-surface)]/30'
+                    : 'bg-[var(--kuro-bg-base)]/20'
                 }`}
               >
                 {/* 1. Clips (Interactive Drag-to-Move across timeline) */}

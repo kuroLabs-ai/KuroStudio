@@ -25,11 +25,18 @@ export const PreviewMonitor: React.FC = () => {
   const [monitorVolume, setMonitorVolume] = useState(1.0);
   const [isMuted, setIsMuted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Track the last blobUrl the video element was pointed at to avoid re-loading on every tick
+  const lastBlobUrlRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const unsubEditor = editorStore.subscribe(() => setTick((t) => t + 1));
     const unsubTimeline = timelineStore.subscribe(() => setTick((t) => t + 1));
     const unsubLayout = layoutStore.subscribe(() => setTick((t) => t + 1));
+
+    // Initialise the clock with project timebase so the store rAF advances correctly
+    const proj = editorStore.getProject();
+    timelineStore.initClock(proj.timelineTimebase, 0);
+
     return () => {
       unsubEditor();
       unsubTimeline();
@@ -42,12 +49,12 @@ export const PreviewMonitor: React.FC = () => {
   const isPlaying = timelineStore.getIsPlaying();
   const selectedClipIds = timelineStore.getSelectedClipIds();
 
-  // Find active video clip at playhead or selected
-  let activeClip = undefined;
+  // Find active video clip at playhead (search all video tracks, top layer wins)
+  let activeClip = undefined as ReturnType<typeof project.tracks[0]['clips']['find']>;
   for (const track of project.tracks) {
-    if (track.kind === 'video') {
+    if (track.kind === 'video' && !track.muted && !track.hidden) {
       const atPlayhead = track.clips.find(
-        (c) => playheadTicks >= c.timelineStartTicks && playheadTicks <= c.timelineStartTicks + c.durationTicks
+        (c) => playheadTicks >= c.timelineStartTicks && playheadTicks < c.timelineStartTicks + c.durationTicks
       );
       if (atPlayhead) {
         activeClip = atPlayhead;
@@ -56,6 +63,7 @@ export const PreviewMonitor: React.FC = () => {
     }
   }
 
+  // Fallback: show selected clip even if playhead isn't on it
   if (!activeClip && selectedClipIds[0]) {
     for (const track of project.tracks) {
       const found = track.clips.find((c) => c.id === selectedClipIds[0]);
@@ -69,47 +77,38 @@ export const PreviewMonitor: React.FC = () => {
   const activeAsset = activeClip ? project.assets.find((a) => a.id === activeClip?.assetId) : undefined;
   const activeBlobUrl = (activeAsset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'] as string | undefined;
 
-  // Sync real video playback state
+  // Wire up video element src only when blobUrl changes (avoid reload on every rAF tick)
   useEffect(() => {
     if (!videoRef.current) return;
+    if (activeBlobUrl !== lastBlobUrlRef.current) {
+      lastBlobUrlRef.current = activeBlobUrl;
+      if (activeBlobUrl) {
+        videoRef.current.src = activeBlobUrl;
+        videoRef.current.load();
+      } else {
+        videoRef.current.src = '';
+      }
+    }
+  }, [activeBlobUrl]);
+
+  // Sync HTML5 video play/pause state from timelineStore
+  useEffect(() => {
+    if (!videoRef.current || !activeBlobUrl) return;
     if (isPlaying) {
       videoRef.current.play().catch(() => {});
     } else {
       videoRef.current.pause();
     }
-  }, [isPlaying]);
+  }, [isPlaying, activeBlobUrl]);
 
-  // Sync video time when user scrubs playhead
+  // Sync video seek position when user scrubs the playhead (threshold = 0.1s)
   useEffect(() => {
-    if (!videoRef.current || !activeClip) return;
-    const clipOffsetSeconds = (playheadTicks - activeClip.timelineStartTicks) / project.timelineTimebase;
-    if (Math.abs(videoRef.current.currentTime - clipOffsetSeconds) > 0.15) {
-      videoRef.current.currentTime = Math.max(0, clipOffsetSeconds);
+    if (!videoRef.current || !activeClip || !activeBlobUrl) return;
+    const clipOffsetSec = (playheadTicks - activeClip.timelineStartTicks) / project.timelineTimebase;
+    if (Math.abs(videoRef.current.currentTime - clipOffsetSec) > 0.1) {
+      videoRef.current.currentTime = Math.max(0, clipOffsetSec);
     }
-  }, [playheadTicks, activeClip, project.timelineTimebase]);
-
-  // Real-time animation progression when no real HTML5 video element is loaded
-  useEffect(() => {
-    if (activeBlobUrl) return;
-
-    let animId: number;
-    let lastTime = performance.now();
-
-    const loop = (currentTime: number) => {
-      if (timelineStore.getIsPlaying()) {
-        const deltaMs = currentTime - lastTime;
-        const deltaSeconds = deltaMs / 1000;
-        const currentTicks = timelineStore.getPlayheadTicks();
-        const deltaTicks = Math.round(deltaSeconds * project.timelineTimebase);
-        timelineStore.setPlayheadTicks(currentTicks + deltaTicks);
-      }
-      lastTime = currentTime;
-      animId = requestAnimationFrame(loop);
-    };
-
-    animId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animId);
-  }, [project.timelineTimebase, activeBlobUrl]);
+  }, [playheadTicks, activeClip, activeBlobUrl, project.timelineTimebase]);
 
   const timecode = formatTimecode(playheadTicks, {
     fpsNumerator: project.fpsNumerator,
@@ -124,16 +123,17 @@ export const PreviewMonitor: React.FC = () => {
 
   const handleJumpToStart = () => {
     timelineStore.setPlayheadTicks(0);
+    timelineStore.setIsPlaying(false);
   };
 
   return (
     <div className="h-full flex flex-col bg-[var(--kuro-bg-canvas)] select-none overflow-hidden transition-colors">
       {/* Top Monitor Strip */}
-      <div className="h-8 px-3 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs bg-[var(--kuro-bg-panel)] z-10">
+      <div className="h-8 px-3 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs bg-[var(--kuro-bg-panel)] z-10 shrink-0">
         <div className="flex items-center gap-2">
           <Monitor className="w-3.5 h-3.5 text-[var(--kuro-text-secondary)]" />
           <span className="font-medium text-[var(--kuro-text-primary)] text-xs">Preview</span>
-          <span className="text-[10px] bg-[var(--kuro-bg-surface)] text-[var(--kuro-text-muted)] px-1.5 py-0.2 rounded font-mono border border-[var(--kuro-border-subtle)]">
+          <span className="text-[10px] bg-[var(--kuro-bg-surface)] text-[var(--kuro-text-muted)] px-1.5 py-0.5 rounded font-mono border border-[var(--kuro-border-subtle)]">
             {project.width}x{project.height}
           </span>
           {activeAsset && (
@@ -182,7 +182,7 @@ export const PreviewMonitor: React.FC = () => {
             title={
               !layoutStore.isLeftPanelVisible() && !layoutStore.isInspectorVisible() && !layoutStore.isTimelineVisible()
                 ? 'Restore Panels'
-                : 'Maximize Preview (Hide other panels)'
+                : 'Maximize Preview'
             }
           >
             {!layoutStore.isLeftPanelVisible() && !layoutStore.isInspectorVisible() && !layoutStore.isTimelineVisible() ? (
@@ -194,7 +194,7 @@ export const PreviewMonitor: React.FC = () => {
         </div>
       </div>
 
-      {/* Video Viewport Area */}
+      {/* Video Viewport Area – letterboxed 16:9, never overlays transport bar */}
       <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-3 relative overflow-hidden bg-[var(--kuro-bg-canvas)]">
         <div
           className="relative rounded border border-[var(--kuro-border-subtle)] shadow-2xl flex items-center justify-center overflow-hidden bg-black"
@@ -216,16 +216,9 @@ export const PreviewMonitor: React.FC = () => {
             ) : (
               <video
                 ref={videoRef}
-                src={activeBlobUrl}
                 className="w-full h-full object-contain pointer-events-none"
                 muted={isMuted}
                 playsInline
-                onTimeUpdate={() => {
-                  if (videoRef.current && activeClip && timelineStore.getIsPlaying()) {
-                    const clipTicks = Math.round(videoRef.current.currentTime * project.timelineTimebase);
-                    timelineStore.setPlayheadTicks(activeClip.timelineStartTicks + clipTicks);
-                  }
-                }}
                 onEnded={() => timelineStore.setIsPlaying(false)}
               />
             )
@@ -236,8 +229,14 @@ export const PreviewMonitor: React.FC = () => {
               </span>
             </div>
           ) : (
-            /* Pure black screen when no clip or footage is active at playhead */
-            <div className="w-full h-full bg-black" />
+            /* Pure black when no clip at playhead */
+            <div className="w-full h-full bg-black flex items-center justify-center">
+              {project.tracks.every((t) => t.clips.length === 0) && (
+                <span className="text-white/20 text-xs font-mono tracking-widest uppercase select-none">
+                  Drop clips on the timeline to begin
+                </span>
+              )}
+            </div>
           )}
 
           {/* Monochrome Safe Margins Overlay */}
@@ -252,10 +251,15 @@ export const PreviewMonitor: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* Playing indicator dot */}
+          {isPlaying && (
+            <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-white animate-pulse shadow" />
+          )}
         </div>
       </div>
 
-      {/* Transport Bar */}
+      {/* Transport Bar – shrink-0 so it never gets pushed off screen */}
       <div className="h-10 shrink-0 px-4 bg-[var(--kuro-bg-panel)] border-t border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs z-10 transition-colors">
         {/* Monospaced Timecode Display */}
         <div className="font-mono text-xs font-semibold text-[var(--kuro-text-primary)] tracking-wider bg-[var(--kuro-bg-canvas)] px-2.5 py-1 rounded border border-[var(--kuro-border-subtle)]">
@@ -298,7 +302,7 @@ export const PreviewMonitor: React.FC = () => {
           </button>
         </div>
 
-        {/* Volume & Frame Status */}
+        {/* Volume & FPS Status */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 text-[var(--kuro-text-muted)]">
             <button
