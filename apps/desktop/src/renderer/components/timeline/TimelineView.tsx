@@ -71,6 +71,17 @@ export const TimelineView: React.FC = () => {
   const pixelsPerSecond = basePixelsPerSecond * zoom;
   const pixelsPerTick = pixelsPerSecond / project.timelineTimebase;
 
+  // Track Categorization for NLE Layer Stacking Order:
+  // Overlays / Titles on top -> Main Video (V1) in middle -> Main Audio (A1) -> Lower Audio on bottom
+  const videoTracks = project.tracks.filter((t) => t.kind === 'video');
+  const audioTracks = project.tracks.filter((t) => t.kind === 'audio');
+
+  // Main video is the base video track (V1), main audio is A1
+  const mainVideoTrack = videoTracks[videoTracks.length - 1] || videoTracks[0];
+  const mainAudioTrack = audioTracks[0];
+
+  const orderedTracks = [...videoTracks, ...audioTracks];
+
   // Horizontal Wheel Scroll & Ctrl+Wheel Zoom Listener
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -96,11 +107,27 @@ export const TimelineView: React.FC = () => {
     return () => container.removeEventListener('wheel', handleWheel);
   }, []);
 
-  // Live Clip Moving Drag Handler
+  // Live Clip Moving Drag Handler with Auto-Scroll (left & right edges)
   useEffect(() => {
     if (!movingClip) return;
 
     const handleMouseMove = (e: MouseEvent) => {
+      // Auto-scroll when dragging near edges
+      const container = scrollContainerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const leftZone = rect.left + 160 + 100; // accounting for sticky track headers (160px)
+        const rightZone = rect.right - 100;
+
+        if (e.clientX < leftZone) {
+          const speed = Math.min(30, Math.max(6, (leftZone - e.clientX) / 2));
+          container.scrollLeft -= speed;
+        } else if (e.clientX > rightZone) {
+          const speed = Math.min(30, Math.max(6, (e.clientX - rightZone) / 2));
+          container.scrollLeft += speed;
+        }
+      }
+
       const deltaX = e.clientX - movingClip.startX;
       const deltaTicks = Math.round(deltaX / pixelsPerTick);
       let proposed = Math.max(0, movingClip.originalTicks + deltaTicks);
@@ -108,25 +135,21 @@ export const TimelineView: React.FC = () => {
       // Snap logic
       if (timelineStore.getIsSnappingEnabled()) {
         const snapThresholdTicks = Math.round(16 / pixelsPerTick);
-        // Snap to playhead
         if (Math.abs(proposed - playheadTicks) < snapThresholdTicks) {
           proposed = playheadTicks;
         } else if (proposed < snapThresholdTicks) {
           proposed = 0;
         } else {
-          // Snap to other clip boundaries on this track
           const track = project.tracks.find((t) => t.id === movingClip.trackId);
           const activeClip = track?.clips.find((c) => c.id === movingClip.clipId);
           if (track && activeClip) {
             for (const other of track.clips) {
               if (other.id === movingClip.clipId) continue;
               const otherEnd = other.timelineStartTicks + other.durationTicks;
-              // Snap start to otherEnd
               if (Math.abs(proposed - otherEnd) < snapThresholdTicks) {
                 proposed = otherEnd;
                 break;
               }
-              // Snap end to otherStart
               const proposedEnd = proposed + activeClip.durationTicks;
               if (Math.abs(proposedEnd - other.timelineStartTicks) < snapThresholdTicks) {
                 proposed = Math.max(0, other.timelineStartTicks - activeClip.durationTicks);
@@ -155,6 +178,63 @@ export const TimelineView: React.FC = () => {
     };
   }, [movingClip, pixelsPerTick, playheadTicks, project]);
 
+  // Multi-Layer Management: Add Video / Overlay Layer on Top
+  const handleAddVideoTrack = () => {
+    const currentProj = editorStore.getProject();
+    const existingVideo = currentProj.tracks.filter((t) => t.kind === 'video');
+    const newTrackNum = existingVideo.length + 1;
+    const newTrack: Track = {
+      id: generateId('trk_v'),
+      name: `V${newTrackNum} Overlay`,
+      kind: 'video',
+      order: -newTrackNum,
+      muted: false,
+      locked: false,
+      hidden: false,
+      clips: [],
+    };
+
+    // Insert on top (first in tracks array)
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      tracks: [newTrack, ...currentProj.tracks],
+    });
+  };
+
+  // Multi-Layer Management: Add Audio Layer at Bottom
+  const handleAddAudioTrack = () => {
+    const currentProj = editorStore.getProject();
+    const existingAudio = currentProj.tracks.filter((t) => t.kind === 'audio');
+    const newTrackNum = existingAudio.length + 1;
+    const newTrack: Track = {
+      id: generateId('trk_a'),
+      name: `A${newTrackNum} Audio`,
+      kind: 'audio',
+      order: newTrackNum,
+      muted: false,
+      locked: false,
+      hidden: false,
+      clips: [],
+    };
+
+    // Insert at bottom (last in tracks array)
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      tracks: [...currentProj.tracks, newTrack],
+    });
+  };
+
+  // Delete Track (protecting the 2 main tracks)
+  const handleDeleteTrack = (trackId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const currentProj = editorStore.getProject();
+    if (currentProj.tracks.length <= 2) return;
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      tracks: currentProj.tracks.filter((t) => t.id !== trackId),
+    });
+  };
+
   // Safely move clip to new position with collision handling
   const moveClipSafely = async (clipId: string, desiredTicks: number, trackId: string) => {
     const currentProj = editorStore.getProject();
@@ -172,7 +252,6 @@ export const TimelineView: React.FC = () => {
     };
 
     if (collides(finalTicks)) {
-      // Find nearest non-colliding spot
       const collidingClip = otherClips.find(
         (c) => finalTicks < c.timelineStartTicks + c.durationTicks && finalTicks + clip.durationTicks > c.timelineStartTicks
       );
@@ -189,7 +268,6 @@ export const TimelineView: React.FC = () => {
     const success = await editorStore.executeCommand(cmd);
 
     if (!success) {
-      // Fallback direct state update
       const updatedTracks = currentProj.tracks.map((t) => {
         if (t.id !== trackId) return t;
         const newClips = t.clips
@@ -273,7 +351,6 @@ export const TimelineView: React.FC = () => {
     editorStore.getEditorState().setProject(updated);
   };
 
-  // Find guaranteed collision-free start time on track
   const findAvailableStart = (track: Track, requestedStart: number, duration: number): number => {
     const sorted = [...track.clips].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
     let start = Math.max(0, requestedStart);
@@ -287,7 +364,7 @@ export const TimelineView: React.FC = () => {
       for (const c of sorted) {
         const cEnd = c.timelineStartTicks + c.durationTicks;
         if (start < cEnd && end > c.timelineStartTicks) {
-          start = cEnd; // push right after the colliding clip
+          start = cEnd;
           collision = true;
           break;
         }
@@ -296,7 +373,6 @@ export const TimelineView: React.FC = () => {
     return start;
   };
 
-  // Safely insert clip and ensure UI re-renders
   const safelyInsertClip = async (trackId: string, clip: Clip) => {
     const currentProj = editorStore.getProject();
     const track = currentProj.tracks.find((t) => t.id === trackId);
@@ -315,7 +391,6 @@ export const TimelineView: React.FC = () => {
     const success = await editorStore.executeCommand(cmd);
 
     if (!success) {
-      // Direct insertion fallback
       const updatedTracks = currentProj.tracks.map((t) => {
         if (t.id !== trackId) return t;
         const newClips = [...t.clips, finalClip].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
@@ -330,7 +405,6 @@ export const TimelineView: React.FC = () => {
     timelineStore.selectClip(finalClip.id);
   };
 
-  // Apply transition between two clips
   const handleApplyTransitionBetween = async (
     outgoingClipId: string,
     incomingClipId: string,
@@ -358,7 +432,7 @@ export const TimelineView: React.FC = () => {
     });
   };
 
-  // Track Drop Handler (Clips, Titles, Audio, Transitions, Files)
+  // Track Drop Handler with Auto-Scroll Detection
   const handleTrackDrop = async (trackId: string, e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -416,6 +490,7 @@ export const TimelineView: React.FC = () => {
       rawAsset = JSON.stringify(newAsset);
     }
 
+    // Media & Photos Drop
     if (rawAsset) {
       try {
         const asset: AssetReference = JSON.parse(rawAsset);
@@ -438,6 +513,7 @@ export const TimelineView: React.FC = () => {
       }
     }
 
+    // Titles & Text Drop
     if (rawTitle) {
       try {
         const titlePreset = JSON.parse(rawTitle);
@@ -476,6 +552,7 @@ export const TimelineView: React.FC = () => {
       }
     }
 
+    // Audio & Music Drop
     if (rawAudio) {
       try {
         const audioSample = JSON.parse(rawAudio);
@@ -515,6 +592,7 @@ export const TimelineView: React.FC = () => {
       }
     }
 
+    // Transition Drop on Track Lane
     if (rawTrans) {
       try {
         const transDef = JSON.parse(rawTrans);
@@ -545,7 +623,7 @@ export const TimelineView: React.FC = () => {
     }
   };
 
-  // Drop transition on exact cut notch between adjacent clips
+  // Drop transition on exact cut notch
   const handleDropTransitionOnCut = async (
     outgoingClipId: string,
     incomingClipId: string,
@@ -708,39 +786,99 @@ export const TimelineView: React.FC = () => {
         ref={scrollContainerRef}
         className="flex-1 overflow-x-auto overflow-y-auto flex relative select-none kuro-timeline-scroll"
       >
-        {/* Track Headers (Left sticky sidebar) */}
-        <div className="w-40 bg-[var(--kuro-bg-panel)] border-r border-[var(--kuro-border-subtle)] shrink-0 sticky left-0 z-40 shadow-sm">
-          <div className="h-6 border-b border-[var(--kuro-border-subtle)] bg-[var(--kuro-bg-canvas)] px-2.5 flex items-center text-[9px] text-[var(--kuro-text-muted)] font-mono uppercase tracking-wider">
-            TRACKS ({project.tracks.length})
-          </div>
-          {project.tracks.map((track) => (
-            <div
-              key={track.id}
-              className="h-16 px-2.5 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs font-medium bg-[var(--kuro-bg-panel)] transition-colors"
-            >
-              <div className="flex items-center gap-2 truncate">
-                <div className="w-5 h-5 rounded-sm bg-[var(--kuro-bg-surface)] text-[var(--kuro-text-secondary)] flex items-center justify-center shrink-0 border border-[var(--kuro-border-subtle)]">
-                  {track.kind === 'video' ? <Video className="w-3 h-3" /> : <Music className="w-3 h-3" />}
-                </div>
-                <div className="truncate">
-                  <span className="truncate text-xs text-[var(--kuro-text-primary)] block font-medium">{track.name}</span>
-                  <span className="text-[10px] text-[var(--kuro-text-muted)] font-mono">{track.clips.length} clips</span>
-                </div>
-              </div>
-
+        {/* Track Headers (Left sticky sidebar with Multi-Layer controls) */}
+        <div className="w-44 bg-[var(--kuro-bg-panel)] border-r border-[var(--kuro-border-subtle)] shrink-0 sticky left-0 z-40 shadow-sm">
+          {/* Multi-Layer Controls Header */}
+          <div className="h-6 border-b border-[var(--kuro-border-subtle)] bg-[var(--kuro-bg-canvas)] px-2 flex items-center justify-between text-[9px] text-[var(--kuro-text-muted)] font-mono uppercase tracking-wider">
+            <span>LAYERS ({project.tracks.length})</span>
+            <div className="flex items-center gap-1">
               <button
-                onClick={() => handleToggleMute(track.id, track.muted ?? false)}
-                className={`p-1 rounded text-[10px] font-mono transition ${
-                  track.muted
-                    ? 'bg-[var(--kuro-text-primary)] text-[var(--kuro-bg-canvas)] font-bold'
-                    : 'text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)]'
-                }`}
-                title={track.muted ? 'Unmute Track' : 'Mute Track'}
+                onClick={handleAddVideoTrack}
+                className="px-1.5 py-0.5 rounded bg-[var(--kuro-bg-elevated)] hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-primary)] border border-[var(--kuro-border-subtle)] text-[9px] font-bold flex items-center gap-0.5 transition"
+                title="Add Video / Overlay Layer on Top"
               >
-                {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                <Plus className="w-2.5 h-2.5" />
+                <span>+V</span>
+              </button>
+              <button
+                onClick={handleAddAudioTrack}
+                className="px-1.5 py-0.5 rounded bg-[var(--kuro-bg-elevated)] hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-primary)] border border-[var(--kuro-border-subtle)] text-[9px] font-bold flex items-center gap-0.5 transition"
+                title="Add Audio Track at Bottom"
+              >
+                <Plus className="w-2.5 h-2.5" />
+                <span>+A</span>
               </button>
             </div>
-          ))}
+          </div>
+
+          {/* Track Headers List in NLE Stacking Order */}
+          {orderedTracks.map((track) => {
+            const isMainVideo = track.id === mainVideoTrack?.id;
+            const isMainAudio = track.id === mainAudioTrack?.id;
+            const isCustomTrack = !isMainVideo && !isMainAudio;
+
+            return (
+              <div
+                key={track.id}
+                className="h-16 px-2.5 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs font-medium bg-[var(--kuro-bg-panel)] transition-colors group"
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <div className="w-5 h-5 rounded-sm bg-[var(--kuro-bg-surface)] text-[var(--kuro-text-secondary)] flex items-center justify-center shrink-0 border border-[var(--kuro-border-subtle)]">
+                    {track.kind === 'video' ? <Video className="w-3 h-3" /> : <Music className="w-3 h-3" />}
+                  </div>
+                  <div className="truncate">
+                    <div className="flex items-center gap-1">
+                      <span className="truncate text-xs text-[var(--kuro-text-primary)] font-semibold block">
+                        {isMainVideo
+                          ? 'V1: Main Video'
+                          : isMainAudio
+                          ? 'A1: Main Audio'
+                          : track.name}
+                      </span>
+                      {isMainVideo && (
+                        <span className="text-[8px] bg-white text-black font-black px-1 rounded-xs tracking-tighter shadow-xs">
+                          MAIN
+                        </span>
+                      )}
+                      {isMainAudio && (
+                        <span className="text-[8px] bg-white text-black font-black px-1 rounded-xs tracking-tighter shadow-xs">
+                          MAIN
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-[var(--kuro-text-muted)] font-mono block">
+                      {isMainVideo ? 'Media & Photos' : `${track.clips.length} clips`}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  {/* Delete Track button for custom added layers */}
+                  {isCustomTrack && (
+                    <button
+                      onClick={(e) => handleDeleteTrack(track.id, e)}
+                      className="p-1 rounded text-[var(--kuro-text-muted)] hover:text-white hover:bg-[var(--kuro-bg-hover)] opacity-0 group-hover:opacity-100 transition"
+                      title="Remove this layer"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => handleToggleMute(track.id, track.muted ?? false)}
+                    className={`p-1 rounded text-[10px] font-mono transition ${
+                      track.muted
+                        ? 'bg-[var(--kuro-text-primary)] text-[var(--kuro-bg-canvas)] font-bold'
+                        : 'text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)]'
+                    }`}
+                    title={track.muted ? 'Unmute Track' : 'Mute Track'}
+                  >
+                    {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Tracks Content & Time Ruler */}
@@ -774,8 +912,8 @@ export const TimelineView: React.FC = () => {
             </div>
           </div>
 
-          {/* Tracks Clip Lanes */}
-          {project.tracks.map((track) => {
+          {/* Tracks Clip Lanes in Stacking Order */}
+          {orderedTracks.map((track) => {
             const sortedClips = [...track.clips].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
             const isTrackOver = dragOverTrackId === track.id;
 
@@ -787,6 +925,20 @@ export const TimelineView: React.FC = () => {
                   e.stopPropagation();
                   e.dataTransfer.dropEffect = 'copy';
                   setDragOverTrackId(track.id);
+
+                  // Auto-scroll when dragging near edges
+                  const container = scrollContainerRef.current;
+                  if (container) {
+                    const rect = container.getBoundingClientRect();
+                    const leftZone = rect.left + 160 + 100;
+                    const rightZone = rect.right - 100;
+
+                    if (e.clientX < leftZone) {
+                      container.scrollLeft -= 18;
+                    } else if (e.clientX > rightZone) {
+                      container.scrollLeft += 18;
+                    }
+                  }
                 }}
                 onDragLeave={() => {
                   setDragOverTrackId(null);
@@ -815,7 +967,6 @@ export const TimelineView: React.FC = () => {
                       onMouseDown={(e) => {
                         e.stopPropagation();
                         timelineStore.selectClip(clip.id);
-                        // Initiate live repositioning / moving
                         setMovingClip({
                           clipId: clip.id,
                           trackId: track.id,
@@ -898,7 +1049,6 @@ export const TimelineView: React.FC = () => {
                   const cutId = `${clipA.id}_${clipB.id}`;
                   const isCutHovered = dragOverCutId === cutId;
 
-                  // Check if a transition already exists at this cut
                   const existingTrans = project.transitions.find(
                     (t) => t.outgoingClipId === clipA.id && t.incomingClipId === clipB.id
                   );
