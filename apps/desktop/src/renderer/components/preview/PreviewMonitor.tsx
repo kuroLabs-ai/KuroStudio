@@ -195,8 +195,17 @@ export const PreviewMonitor: React.FC = () => {
       </div>
 
       {/* Video Viewport Area */}
-      <div className="flex-1 flex items-center justify-center p-3 relative bg-[var(--kuro-bg-canvas)]">
-        <div className="relative aspect-video max-h-full max-w-full w-[840px] bg-black rounded border border-[var(--kuro-border-subtle)] shadow-2xl flex items-center justify-center overflow-hidden">
+      <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-3 relative overflow-hidden bg-[var(--kuro-bg-canvas)]">
+        <div
+          className="relative rounded border border-[var(--kuro-border-subtle)] shadow-2xl flex items-center justify-center overflow-hidden bg-black"
+          style={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+            aspectRatio: '16 / 9',
+            width: '100%',
+            height: 'auto',
+          }}
+        >
           {activeBlobUrl ? (
             <video
               ref={videoRef}
@@ -213,7 +222,7 @@ export const PreviewMonitor: React.FC = () => {
               onEnded={() => timelineStore.setIsPlaying(false)}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center text-[var(--kuro-text-muted)] gap-2 p-6 text-center">
+            <div className="flex flex-col items-center justify-center text-[var(--kuro-text-muted)] gap-2 p-6 text-center select-none">
               <div className="w-12 h-12 rounded bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-subtle)] flex items-center justify-center text-[var(--kuro-text-secondary)]">
                 <Monitor className="w-6 h-6" />
               </div>
@@ -244,7 +253,7 @@ export const PreviewMonitor: React.FC = () => {
       </div>
 
       {/* Transport Bar */}
-      <div className="h-10 px-4 bg-[var(--kuro-bg-panel)] border-t border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs z-10 transition-colors">
+      <div className="h-10 shrink-0 px-4 bg-[var(--kuro-bg-panel)] border-t border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs z-10 transition-colors">
         {/* Monospaced Timecode Display */}
         <div className="font-mono text-xs font-semibold text-[var(--kuro-text-primary)] tracking-wider bg-[var(--kuro-bg-canvas)] px-2.5 py-1 rounded border border-[var(--kuro-border-subtle)]">
           {timecode}

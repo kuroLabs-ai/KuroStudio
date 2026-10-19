@@ -312,9 +312,14 @@ export const MediaBin: React.FC = () => {
             return (
               <div
                 key={asset.id}
+                draggable={true}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('application/kuro-asset', JSON.stringify(asset));
+                  e.dataTransfer.effectAllowed = 'copyMove';
+                }}
                 onClick={() => handleAddAssetToTimeline(asset)}
-                className="group flex items-center justify-between p-2 rounded bg-[var(--kuro-bg-surface)] hover:bg-[var(--kuro-bg-hover)] border border-[var(--kuro-border-subtle)] hover:border-[var(--kuro-border-base)] cursor-pointer transition"
-                title="Click to place on timeline"
+                className="group flex items-center justify-between p-2 rounded bg-[var(--kuro-bg-surface)] hover:bg-[var(--kuro-bg-hover)] border border-[var(--kuro-border-subtle)] hover:border-[var(--kuro-border-base)] cursor-grab active:cursor-grabbing transition"
+                title="Click or drag to place on timeline"
               >
                 <div className="flex items-center gap-2.5 truncate">
                   {/* Thumbnail / Icon Badge */}
