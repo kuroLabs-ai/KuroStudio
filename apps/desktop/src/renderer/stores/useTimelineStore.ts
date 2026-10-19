@@ -11,6 +11,59 @@ class TimelineStore {
   private selectedTrackId: string | null = null;
   private listeners = new Set<Listener>();
 
+  // rAF-based global playback clock (advances playhead every frame when playing)
+  private _rafId: number | null = null;
+  private _lastRafTime: number | null = null;
+  private _timebase: number = DEFAULT_TICKS_PER_SECOND;
+  private _durationTicks: number = 0; // total timeline duration – 0 means unlimited
+
+  /** Call this once from the app to wire up the global clock with the current project timebase */
+  public initClock(timebase: number, durationTicks = 0): void {
+    this._timebase = timebase;
+    this._durationTicks = durationTicks;
+  }
+
+  /** Must be called whenever isPlaying changes so the rAF loop starts/stops */
+  private _syncRaf(): void {
+    if (this.isPlaying) {
+      if (this._rafId === null) {
+        this._lastRafTime = null;
+        const tick = (now: number) => {
+          if (!this.isPlaying) {
+            this._rafId = null;
+            return;
+          }
+          if (this._lastRafTime !== null) {
+            const deltaMs = now - this._lastRafTime;
+            const deltaTicks = Math.round((deltaMs / 1000) * this._timebase);
+            let next = this.playheadTicks + deltaTicks;
+            // Loop or stop at end if duration is set
+            if (this._durationTicks > 0 && next >= this._durationTicks) {
+              next = this._durationTicks;
+              this.playheadTicks = next;
+              this.isPlaying = false;
+              this._rafId = null;
+              this._lastRafTime = null;
+              this.notify();
+              return;
+            }
+            this.playheadTicks = Math.max(0, next);
+          }
+          this._lastRafTime = now;
+          this.notify();
+          this._rafId = requestAnimationFrame(tick);
+        };
+        this._rafId = requestAnimationFrame(tick);
+      }
+    } else {
+      if (this._rafId !== null) {
+        cancelAnimationFrame(this._rafId);
+        this._rafId = null;
+        this._lastRafTime = null;
+      }
+    }
+  }
+
   public getPlayheadTicks(): TimelineTicks {
     return this.playheadTicks;
   }
@@ -26,11 +79,13 @@ class TimelineStore {
 
   public setIsPlaying(playing: boolean): void {
     this.isPlaying = playing;
+    this._syncRaf();
     this.notify();
   }
 
   public togglePlayback(): void {
     this.isPlaying = !this.isPlaying;
+    this._syncRaf();
     this.notify();
   }
 
