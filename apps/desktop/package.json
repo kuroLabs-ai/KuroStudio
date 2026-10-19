@@ -1,0 +1,20 @@
+{
+  "name": "@kuro/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/main/index.js",
+  "dependencies": {
+    "@kuro/shared": "workspace:*",
+    "@kuro/project-format": "workspace:*",
+    "@kuro/editor-core": "workspace:*",
+    "@kuro/ai-core": "workspace:*",
+    "@kuro/ai-providers": "workspace:*",
+    "@kuro/audio-engine": "workspace:*",
+    "@kuro/media-engine": "workspace:*",
+    "@kuro/remotion-bridge": "workspace:*",
+    "@kuro/store": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

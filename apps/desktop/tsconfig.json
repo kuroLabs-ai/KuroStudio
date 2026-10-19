@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/project-format" },
+    { "path": "../../packages/editor-core" },
+    { "path": "../../packages/ai-core" },
+    { "path": "../../packages/ai-providers" },
+    { "path": "../../packages/audio-engine" },
+    { "path": "../../packages/media-engine" },
+    { "path": "../../packages/remotion-bridge" },
+    { "path": "../../packages/store" }
+  ],
+  "include": ["src/**/*"]
+}

@@ -1,0 +1,43 @@
+import { StorePackManifest } from '../types/pack.interface';
+
+export const OFFICIAL_KURO_STORE_CATALOG: StorePackManifest[] = [
+  {
+    id: 'pack_cyberpunk_luts',
+    version: '1.0.0',
+    title: 'Cyberpunk & Synthwave LUTs',
+    description: '10 cinematic .cube LUTs with rich teals, neon magentas, and deep shadows.',
+    category: 'luts',
+    author: 'KuroLabs',
+    license: 'KuroStudio Official Content License',
+    sourceUrl: 'https://cdn.kurolabs.dev/packs/cyberpunk-luts-v1.zip',
+    sha256Checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    minKuroStudioVersion: '0.1.0',
+    declaredFiles: ['luts/neon_nights.cube', 'luts/tokyo_drift.cube', 'luts/retro_purple.cube'],
+  },
+  {
+    id: 'pack_modern_transitions',
+    version: '1.1.0',
+    title: 'Kinetic Warp Transitions',
+    description: 'Smooth directional whip pans, zoom blurs, and glitch wipes for fast-paced video edits.',
+    category: 'transitions',
+    author: 'KuroLabs',
+    license: 'KuroStudio Official Content License',
+    sourceUrl: 'https://cdn.kurolabs.dev/packs/modern-transitions-v1.1.zip',
+    sha256Checksum: '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8',
+    minKuroStudioVersion: '0.1.0',
+    declaredFiles: ['transitions/whip_right.json', 'transitions/zoom_in.json'],
+  },
+  {
+    id: 'pack_broadcast_titles',
+    version: '1.0.0',
+    title: 'Minimal Broadcast Titles (Remotion)',
+    description: 'Clean typographic titles with configurable accent colors and typography props.',
+    category: 'remotion-templates',
+    author: 'KuroLabs',
+    license: 'KuroStudio Official Content License',
+    sourceUrl: 'https://cdn.kurolabs.dev/packs/broadcast-titles-v1.zip',
+    sha256Checksum: '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a',
+    minKuroStudioVersion: '0.1.0',
+    declaredFiles: ['templates/BroadcastTitle.tsx', 'templates/CleanHeader.tsx'],
+  },
+];
