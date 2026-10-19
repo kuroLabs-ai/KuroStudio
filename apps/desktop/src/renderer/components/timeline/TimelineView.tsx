@@ -453,9 +453,20 @@ export const TimelineView: React.FC = () => {
     const track = currentProj.tracks.find((t) => t.id === trackId);
     if (!track) return;
 
-    const laneRect = e.currentTarget.getBoundingClientRect();
-    const dropX = e.clientX - laneRect.left;
-    const dropTicks = Math.max(0, Math.round(dropX / pixelsPerTick));
+    // Compute drop position in timeline ticks.
+    // The sticky header column is 176px (w-44). Content area starts right after it.
+    // We need: (clientX - containerLeft - headerWidth + scrollLeft) / pixelsPerTick
+    const container = scrollContainerRef.current;
+    const HEADER_WIDTH = 176;
+    let dropTicks = 0;
+    if (container) {
+      const containerRect = container.getBoundingClientRect();
+      const relativeX = e.clientX - containerRect.left - HEADER_WIDTH + container.scrollLeft;
+      dropTicks = Math.max(0, Math.round(relativeX / pixelsPerTick));
+    } else {
+      const laneRect = e.currentTarget.getBoundingClientRect();
+      dropTicks = Math.max(0, Math.round((e.clientX - laneRect.left) / pixelsPerTick));
+    }
 
     let rawAsset = e.dataTransfer.getData('application/kuro-asset');
     let rawTitle = e.dataTransfer.getData('application/kuro-title');
@@ -823,7 +834,7 @@ export const TimelineView: React.FC = () => {
           </div>
 
           {/* Track Headers List in NLE Stacking Order */}
-          {orderedTracks.map((track, trackIndex) => {
+          {orderedTracks.map((track) => {
             const isMainVideo = track.id === mainVideoTrack?.id;
             const isMainAudio = track.id === mainAudioTrack?.id;
             const isOverlay = track.kind === 'video' && !isMainVideo;

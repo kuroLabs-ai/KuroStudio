@@ -86,6 +86,32 @@ export const App: React.FC = () => {
         }
         return;
       }
+      // Home: Jump to start
+      if (e.code === 'Home') {
+        e.preventDefault();
+        timelineStore.setIsPlaying(false);
+        timelineStore.setPlayheadTicks(0);
+        return;
+      }
+
+      // Left / Right arrow: Step one frame (pause first)
+      if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+        e.preventDefault();
+        timelineStore.setIsPlaying(false);
+        const project = editorStore.getProject();
+        const fps = project.fpsNumerator / project.fpsDenominator;
+        const ticksPerFrame = Math.round(project.timelineTimebase / fps);
+        const delta = e.code === 'ArrowLeft' ? -ticksPerFrame : ticksPerFrame;
+        timelineStore.setPlayheadTicks(
+          Math.max(0, timelineStore.getPlayheadTicks() + delta)
+        );
+        return;
+      }
+
+      // J: Rewind (pause), K: Pause, L: Play
+      if (e.code === 'KeyJ') { e.preventDefault(); timelineStore.setIsPlaying(false); return; }
+      if (e.code === 'KeyK') { e.preventDefault(); timelineStore.setIsPlaying(false); return; }
+      if (e.code === 'KeyL') { e.preventDefault(); timelineStore.setIsPlaying(true); return; }
     };
 
     window.addEventListener('keydown', handleKeyDown);
