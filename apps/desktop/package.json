@@ -2,7 +2,7 @@
   "name": "@kuro/desktop",
   "version": "0.1.0",
   "private": true,
-  "main": "./dist/main/index.js",
+  "main": "main.cjs",
   "dependencies": {
     "@kuro/ai-core": "*",
     "@kuro/ai-providers": "*",

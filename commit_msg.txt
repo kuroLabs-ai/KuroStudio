@@ -1,0 +1,7 @@
+feat(desktop): configure Electron dev mode with concurrent React server and BrowserWindow loader
+
+- Create apps/desktop/main.cjs with BrowserWindow lifecycle and dev server loader with retry
+- Create apps/desktop/preload.cjs exposing kuroBridge via contextBridge
+- Add dev:electron script running Vite dev server and Electron concurrently
+- Update apps/desktop/index.html CSP to support Vite HMR websockets and dev server
+- Add markSaved to EditorStore and fix track.muted boolean type check

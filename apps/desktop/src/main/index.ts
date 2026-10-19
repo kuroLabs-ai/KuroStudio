@@ -1,10 +1,16 @@
+import { app, BrowserWindow, ipcMain } from 'electron';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { CommandBus, EditorState } from '@kuro/editor-core';
 import { KuroAgent, ModelRouter } from '@kuro/ai-core';
 import { ToolRegistry } from '@kuro/ai-core';
-import { createNewProject, deserializeProject, Project, serializeProject } from '@kuro/project-format';
+import { createNewProject, Project } from '@kuro/project-format';
 import { FilterGraphBuilder, RenderJob } from '@kuro/media-engine';
-import { OFFICIAL_KURO_STORE_CATALOG, StorePackInstaller } from '@kuro/store';
+import { StorePackInstaller } from '@kuro/store';
 import { SecretManager } from './secrets';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class KuroDesktopApplication {
   private editorState: EditorState;
@@ -84,3 +90,51 @@ export class KuroDesktopApplication {
     return job;
   }
 }
+
+let mainWindow: BrowserWindow | null = null;
+const kuroApp = new KuroDesktopApplication();
+
+function createMainWindow(): void {
+  mainWindow = new BrowserWindow({
+    title: 'KuroStudio',
+    width: 1440,
+    height: 900,
+    minWidth: 1080,
+    minHeight: 700,
+    backgroundColor: '#090d16',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.resolve(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  // Load the built renderer index.html
+  const indexPath = path.resolve(__dirname, '../renderer/index.html');
+  mainWindow.loadFile(indexPath).catch((err) => {
+    console.error('Failed to load renderer HTML:', err);
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+// App lifecycle
+app.whenReady().then(() => {
+  createMainWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createMainWindow();
+    }
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});

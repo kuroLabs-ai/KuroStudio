@@ -170,7 +170,7 @@ export const TimelineView: React.FC = () => {
                 <span className="truncate text-xs text-slate-200">{track.name}</span>
               </div>
               <button
-                onClick={() => handleToggleMute(track.id, track.muted)}
+                onClick={() => handleToggleMute(track.id, track.muted ?? false)}
                 className={`p-1 rounded transition ${
                   track.muted
                     ? 'bg-rose-950/80 text-rose-400 border border-rose-800/40'
