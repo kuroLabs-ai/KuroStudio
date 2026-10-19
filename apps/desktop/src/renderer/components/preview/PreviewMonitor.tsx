@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { formatTimecode } from '@kuro/shared';
@@ -10,13 +10,18 @@ import {
   ChevronRight,
   Grid,
   Monitor,
-  Maximize2
+  Volume2,
+  VolumeX,
+  Circle
 } from 'lucide-react';
 
 export const PreviewMonitor: React.FC = () => {
   const [, setTick] = useState(0);
   const [showSafeGuides, setShowSafeGuides] = useState(false);
   const [previewQuality, setPreviewQuality] = useState<'1080p' | '720p' | '540p'>('1080p');
+  const [monitorVolume, setMonitorVolume] = useState(1.0);
+  const [isMuted, setIsMuted] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const unsubEditor = editorStore.subscribe(() => setTick((t) => t + 1));
@@ -30,9 +35,58 @@ export const PreviewMonitor: React.FC = () => {
   const project = editorStore.getProject();
   const playheadTicks = timelineStore.getPlayheadTicks();
   const isPlaying = timelineStore.getIsPlaying();
+  const selectedClipIds = timelineStore.getSelectedClipIds();
 
-  // Realtime playback loop
+  // Find active video clip at playhead or selected
+  let activeClip = undefined;
+  for (const track of project.tracks) {
+    if (track.kind === 'video') {
+      const atPlayhead = track.clips.find(
+        (c) => playheadTicks >= c.timelineStartTicks && playheadTicks <= c.timelineStartTicks + c.durationTicks
+      );
+      if (atPlayhead) {
+        activeClip = atPlayhead;
+        break;
+      }
+    }
+  }
+
+  if (!activeClip && selectedClipIds[0]) {
+    for (const track of project.tracks) {
+      const found = track.clips.find((c) => c.id === selectedClipIds[0]);
+      if (found) {
+        activeClip = found;
+        break;
+      }
+    }
+  }
+
+  const activeAsset = activeClip ? project.assets.find((a) => a.id === activeClip?.assetId) : undefined;
+  const activeBlobUrl = (activeAsset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'] as string | undefined;
+
+  // Sync real video playback state
   useEffect(() => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.play().catch(() => {});
+    } else {
+      videoRef.current.pause();
+    }
+  }, [isPlaying]);
+
+  // Sync video time when user scrubs playhead
+  useEffect(() => {
+    if (!videoRef.current || !activeClip) return;
+    const clipOffsetSeconds = (playheadTicks - activeClip.timelineStartTicks) / project.timelineTimebase;
+    if (Math.abs(videoRef.current.currentTime - clipOffsetSeconds) > 0.15) {
+      videoRef.current.currentTime = Math.max(0, clipOffsetSeconds);
+    }
+  }, [playheadTicks, activeClip, project.timelineTimebase]);
+
+  // Real-time animation progression when no real HTML5 video element is loaded
+  useEffect(() => {
+    if (activeBlobUrl) return;
+
     let animId: number;
     let lastTime = performance.now();
 
@@ -50,7 +104,7 @@ export const PreviewMonitor: React.FC = () => {
 
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [project.timelineTimebase]);
+  }, [project.timelineTimebase, activeBlobUrl]);
 
   const timecode = formatTimecode(playheadTicks, {
     fpsNumerator: project.fpsNumerator,
@@ -60,7 +114,7 @@ export const PreviewMonitor: React.FC = () => {
 
   const handleStepFrame = (deltaFrames: number) => {
     const ticksPerFrame = project.timelineTimebase / (project.fpsNumerator / project.fpsDenominator);
-    timelineStore.setPlayheadTicks(Math.round(playheadTicks + deltaFrames * ticksPerFrame));
+    timelineStore.setPlayheadTicks(Math.max(0, Math.round(playheadTicks + deltaFrames * ticksPerFrame)));
   };
 
   const handleJumpToStart = () => {
@@ -68,24 +122,31 @@ export const PreviewMonitor: React.FC = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-slate-950 select-none overflow-hidden">
-      {/* Top Monitor Bar */}
-      <div className="h-9 px-3 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400 bg-slate-900/60 z-10">
+    <div className="h-full flex flex-col bg-[var(--kuro-bg-canvas)] select-none overflow-hidden transition-colors">
+      {/* Top Monitor Strip */}
+      <div className="h-8 px-3 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs bg-[var(--kuro-bg-panel)] z-10">
         <div className="flex items-center gap-2">
-          <Monitor className="w-3.5 h-3.5 text-sky-400" />
-          <span className="font-semibold text-slate-300">Preview Monitor</span>
-          <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono">
+          <Monitor className="w-3.5 h-3.5 text-[var(--kuro-text-secondary)]" />
+          <span className="font-medium text-[var(--kuro-text-primary)] text-xs">Preview</span>
+          <span className="text-[10px] bg-[var(--kuro-bg-surface)] text-[var(--kuro-text-muted)] px-1.5 py-0.2 rounded font-mono border border-[var(--kuro-border-subtle)]">
             {project.width}x{project.height}
           </span>
+          {activeAsset && (
+            <span className="text-[10px] text-[var(--kuro-text-secondary)] font-medium truncate max-w-[200px]">
+              • {activeAsset.name}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowSafeGuides(!showSafeGuides)}
-            className={`px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1.5 transition ${
-              showSafeGuides ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'hover:text-slate-200 hover:bg-slate-800'
+            className={`px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition ${
+              showSafeGuides
+                ? 'bg-[var(--kuro-text-primary)] text-[var(--kuro-bg-canvas)]'
+                : 'text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)]'
             }`}
-            title="Toggle Action Safe Guides"
+            title="Toggle Safe Margins Grid"
           >
             <Grid className="w-3 h-3" />
             <span>Guides</span>
@@ -94,93 +155,137 @@ export const PreviewMonitor: React.FC = () => {
           <select
             value={previewQuality}
             onChange={(e) => setPreviewQuality(e.target.value as '1080p' | '720p' | '540p')}
-            className="bg-slate-900 border border-slate-700 text-[11px] rounded px-2 py-0.5 text-slate-300 focus:outline-none cursor-pointer"
+            className="bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-subtle)] text-[11px] rounded px-1.5 py-0.5 text-[var(--kuro-text-secondary)] focus:outline-none cursor-pointer"
           >
-            <option value="1080p">Full (1080p)</option>
-            <option value="720p">1/2 (720p)</option>
-            <option value="540p">1/4 Proxy (540p)</option>
+            <option value="1080p">1080p Full</option>
+            <option value="720p">720p 1/2</option>
+            <option value="540p">540p Proxy</option>
           </select>
         </div>
       </div>
 
       {/* Video Viewport Area */}
-      <div className="flex-1 flex items-center justify-center p-4 relative bg-black/70">
-        <div className="relative aspect-video max-h-full max-w-full w-[800px] bg-slate-900 rounded-lg border border-slate-800 shadow-2xl flex items-center justify-center overflow-hidden">
-          {/* Safe Margins Overlay */}
-          {showSafeGuides && (
-            <div className="absolute inset-6 border border-dashed border-sky-500/30 pointer-events-none flex items-center justify-center">
-              <div className="w-4 h-4 border-t border-l border-sky-400/50 absolute top-0 left-0" />
-              <div className="w-4 h-4 border-t border-r border-sky-400/50 absolute top-0 right-0" />
-              <div className="w-4 h-4 border-b border-l border-sky-400/50 absolute bottom-0 left-0" />
-              <div className="w-4 h-4 border-b border-r border-sky-400/50 absolute bottom-0 right-0" />
-              <div className="text-[10px] text-sky-400/60 font-mono">ACTION SAFE 90%</div>
+      <div className="flex-1 flex items-center justify-center p-3 relative bg-[var(--kuro-bg-canvas)]">
+        <div className="relative aspect-video max-h-full max-w-full w-[840px] bg-black rounded border border-[var(--kuro-border-subtle)] shadow-2xl flex items-center justify-center overflow-hidden">
+          {activeBlobUrl ? (
+            <video
+              ref={videoRef}
+              src={activeBlobUrl}
+              className="w-full h-full object-contain pointer-events-none"
+              muted={isMuted}
+              playsInline
+              onTimeUpdate={() => {
+                if (videoRef.current && activeClip && timelineStore.getIsPlaying()) {
+                  const clipTicks = Math.round(videoRef.current.currentTime * project.timelineTimebase);
+                  timelineStore.setPlayheadTicks(activeClip.timelineStartTicks + clipTicks);
+                }
+              }}
+              onEnded={() => timelineStore.setIsPlaying(false)}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center text-[var(--kuro-text-muted)] gap-2 p-6 text-center">
+              <div className="w-12 h-12 rounded bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-subtle)] flex items-center justify-center text-[var(--kuro-text-secondary)]">
+                <Monitor className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-xs font-mono tracking-wider text-[var(--kuro-text-secondary)] font-medium">
+                  {project.width}x{project.height} @ {project.fpsNumerator}fps
+                </div>
+                <p className="text-[11px] text-[var(--kuro-text-muted)] mt-1 max-w-[220px]">
+                  Import media into Media Bin to preview video footage
+                </p>
+              </div>
             </div>
           )}
 
-          {/* Active Canvas Screen Mock */}
-          <div className="flex flex-col items-center justify-center text-slate-600 gap-3">
-            <div className="w-16 h-16 rounded-2xl bg-slate-800/80 border border-slate-700/50 flex items-center justify-center text-slate-400 shadow-inner">
-              <Monitor className="w-8 h-8 text-sky-400/80" />
-            </div>
-            <div className="text-center">
-              <div className="text-xs font-mono tracking-wider text-slate-300 font-semibold">
-                {project.width}x{project.height} @ {project.fpsNumerator}fps
-              </div>
-              <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                Playhead: {(playheadTicks / project.timelineTimebase).toFixed(2)}s
+          {/* Monochrome Safe Margins Overlay */}
+          {showSafeGuides && (
+            <div className="absolute inset-8 border border-dashed border-white/30 pointer-events-none flex items-center justify-center">
+              <div className="w-3 h-3 border-t border-l border-white/60 absolute top-0 left-0" />
+              <div className="w-3 h-3 border-t border-r border-white/60 absolute top-0 right-0" />
+              <div className="w-3 h-3 border-b border-l border-white/60 absolute bottom-0 left-0" />
+              <div className="w-3 h-3 border-b border-r border-white/60 absolute bottom-0 right-0" />
+              <div className="text-[9px] text-white/70 font-mono tracking-wider bg-black/70 px-2 py-0.5 rounded">
+                SAFE AREA 90%
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Playback Controls & Timecode Bar */}
-      <div className="h-11 px-4 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs z-10">
-        {/* SMPTE Timecode Readout */}
-        <div className="font-mono text-xs font-bold text-sky-400 tracking-wider bg-slate-950 px-2.5 py-1 rounded border border-slate-800 shadow-inner">
+      {/* Transport Bar */}
+      <div className="h-10 px-4 bg-[var(--kuro-bg-panel)] border-t border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs z-10 transition-colors">
+        {/* Monospaced Timecode Display */}
+        <div className="font-mono text-xs font-semibold text-[var(--kuro-text-primary)] tracking-wider bg-[var(--kuro-bg-canvas)] px-2.5 py-1 rounded border border-[var(--kuro-border-subtle)]">
           {timecode}
         </div>
 
         {/* Transport Controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <button
             onClick={handleJumpToStart}
-            className="w-8 h-8 rounded-lg hover:bg-slate-800 flex items-center justify-center text-slate-300 transition"
+            className="w-7 h-7 rounded hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-secondary)] hover:text-[var(--kuro-text-primary)] flex items-center justify-center transition"
             title="Jump to Start (Home)"
           >
-            <SkipBack className="w-4 h-4" />
+            <SkipBack className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => handleStepFrame(-1)}
-            className="w-8 h-8 rounded-lg hover:bg-slate-800 flex items-center justify-center text-slate-300 transition"
+            className="w-7 h-7 rounded hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-secondary)] hover:text-[var(--kuro-text-primary)] flex items-center justify-center transition"
             title="Step 1 Frame Back (Left Arrow)"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button
             onClick={() => timelineStore.togglePlayback()}
-            className="w-9 h-9 rounded-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold flex items-center justify-center shadow-lg shadow-sky-500/25 transition hover:scale-105 active:scale-95"
+            className="w-8 h-8 rounded-full bg-[var(--kuro-btn-primary-bg)] text-[var(--kuro-btn-primary-text)] hover:opacity-90 flex items-center justify-center transition active:scale-95"
             title="Play / Pause (Space)"
           >
             {isPlaying ? (
-              <Pause className="w-4 h-4 fill-current" />
+              <Pause className="w-3.5 h-3.5 fill-current" />
             ) : (
-              <Play className="w-4 h-4 fill-current translate-x-0.5" />
+              <Play className="w-3.5 h-3.5 fill-current translate-x-0.5" />
             )}
           </button>
           <button
             onClick={() => handleStepFrame(1)}
-            className="w-8 h-8 rounded-lg hover:bg-slate-800 flex items-center justify-center text-slate-300 transition"
+            className="w-7 h-7 rounded hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-secondary)] hover:text-[var(--kuro-text-primary)] flex items-center justify-center transition"
             title="Step 1 Frame Forward (Right Arrow)"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Playback FPS Feedback */}
-        <div className="text-[11px] text-slate-400 flex items-center gap-1.5 bg-slate-950/60 px-2 py-0.5 rounded border border-slate-800">
-          <span className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
-          <span className="font-mono">Realtime {project.fpsNumerator}.0 fps</span>
+        {/* Volume & Frame Status */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-[var(--kuro-text-muted)]">
+            <button
+              onClick={() => setIsMuted(!isMuted)}
+              className="hover:text-[var(--kuro-text-primary)]"
+              title={isMuted ? 'Unmute' : 'Mute'}
+            >
+              {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={isMuted ? 0 : monitorVolume}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setMonitorVolume(v);
+                setIsMuted(false);
+                if (videoRef.current) videoRef.current.volume = v;
+              }}
+              className="w-16 accent-[var(--kuro-text-primary)] cursor-pointer"
+            />
+          </div>
+
+          <div className="text-[10px] text-[var(--kuro-text-muted)] flex items-center gap-1.5 bg-[var(--kuro-bg-canvas)] px-2 py-0.5 rounded border border-[var(--kuro-border-subtle)] font-mono">
+            <Circle className={`w-1.5 h-1.5 fill-current ${isPlaying ? 'text-[var(--kuro-text-primary)] animate-pulse' : 'text-[var(--kuro-text-faint)]'}`} />
+            <span>{project.fpsNumerator}.0 fps</span>
+          </div>
         </div>
       </div>
     </div>

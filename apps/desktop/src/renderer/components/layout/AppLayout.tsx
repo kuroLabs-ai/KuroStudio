@@ -20,7 +20,7 @@ export const AppLayout: React.FC = () => {
   const activeModal = modalStore.getActiveModal();
 
   return (
-    <div className="w-screen h-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
+    <div className="w-screen h-screen flex flex-col overflow-hidden font-sans select-none" style={{ background: 'var(--kuro-bg-base)', color: 'var(--kuro-text-primary)' }}>
       {/* 1. Global Top Navigation Bar */}
       <TopBar />
 
