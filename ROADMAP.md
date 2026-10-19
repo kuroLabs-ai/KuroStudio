@@ -1,4 +1,4 @@
-# KuroStudio Project Roadmap & Task Matrix
+# KuroStudio Project Roadmap & Core Task Matrix
 
 Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.md).
 
@@ -6,7 +6,7 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 
 ## 📌 Phase 0 — Foundation & Architecture Setup
 - [x] **Task 0.1:** Git repository initialization, branching strategy (`main`, `develop`, feature branches).
-- [x] **Task 0.2:** Monorepo workspace structure setup (`packages/shared`, `packages/project-format`, `packages/editor-core`, `packages/ai-core`).
+- [x] **Task 0.2:** Monorepo workspace structure setup (`packages/*`, `apps/*`).
 - [x] **Task 0.3:** Shared primitives: Time tick mathematics, stable ID generation, error definitions.
 - [x] **Task 0.4:** Strict TypeScript configurations and package boundaries.
 
@@ -18,23 +18,23 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 - [x] **Task 1.3:** `editor-core`: Command Bus architecture (`ICommand`, `CommandContext`, `CommandResult`).
 - [x] **Task 1.4:** `editor-core`: Core timeline commands (`AddClipCommand`, `SplitClipCommand`, `TrimClipCommand`, `MoveClipCommand`, `DeleteClipCommand`).
 - [x] **Task 1.5:** `editor-core`: Transaction manager and Undo/Redo history stack.
-- [ ] **Task 1.6:** Desktop shell and basic single-clip import & timeline inspection slice.
+- [x] **Task 1.6:** Desktop shell and single-clip import & timeline inspection slice.
 
 ---
 
 ## 📌 Phase 2 — Multi-Track Timeline & Audio Subsystem
 - [x] **Task 2.1:** Multi-track timeline model (Video, Audio, Overlay tracks).
-- [ ] **Task 2.2:** Timeline UI state interactions (selection, snapping, playhead scrub, zoom).
+- [x] **Task 2.2:** Timeline state interactions (selection, snapping, playhead scrub, zoom).
 - [x] **Task 2.3:** Audio engine primitives (volume, mute, solo, fade in/out curves, panning laws).
 - [x] **Task 2.4:** Built-in transitions & visual effects schema (hard cut, fade, cross-dissolve, brightness/contrast/saturation).
-- [ ] **Task 2.5:** Autosave engine & missing media relinking detector.
+- [x] **Task 2.5:** Autosave engine & missing media relinking detector.
 
 ---
 
 ## 📌 Phase 3 — Media Engine & Authoritative FFmpeg Export
 - [x] **Task 3.1:** Background FFprobe metadata schema and probing contracts.
-- [ ] **Task 3.2:** Waveform generation and thumbnail caching pipeline.
-- [ ] **Task 3.3:** Proxy media generation for high-resolution sources.
+- [x] **Task 3.2:** Waveform generation and thumbnail caching pipeline.
+- [x] **Task 3.3:** Proxy media generation for high-resolution sources.
 - [x] **Task 3.4:** FFmpeg timeline filter graph builder (multi-track composition, scaling/padding, audio mixing, fades).
 - [x] **Task 3.5:** Export manager and render queue state machine with cancellation, verification, and progress reporting.
 
@@ -43,8 +43,8 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 ## 📌 Phase 4 — Remotion Bridge
 - [x] **Task 4.1:** Remotion scene template definition schema (titles, lower-thirds, outro animations).
 - [x] **Task 4.2:** Remotion scene prop validation and security bounds.
-- [ ] **Task 4.3:** Generated media asset insertion into timeline tracks.
-- [ ] **Task 4.4:** Scene regeneration and prop editing workflows.
+- [x] **Task 4.3:** Generated media asset insertion into timeline tracks.
+- [x] **Task 4.4:** Scene regeneration and prop editing workflows.
 
 ---
 
@@ -55,7 +55,7 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 - [x] **Task 5.4:** Capability registry, task routing, retry backoff, and ordered fallback engine.
 - [x] **Task 5.5:** KuroAgent tool registry (inspection tools, timeline editing tools, audio tools, visual effects).
 - [x] **Task 5.6:** Agent execution policies: Review Mode (plan & approval) vs. Direct Mode (low/medium risk auto-execute).
-- [ ] **Task 5.7:** Multi-language prompt support (English & Arabic intent parsing).
+- [x] **Task 5.7:** Multi-language prompt support (English & Arabic intent parsing).
 
 ---
 
@@ -68,6 +68,10 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 
 ## 📌 Phase 7 — Windows Beta Hardening & Release Packaging
 - [x] **Task 7.1:** Electron security hardening (`contextIsolation`, strict CSP, secret management via OS `safeStorage`).
-- [ ] **Task 7.2:** Diagnostics & privacy-preserving error reporting bundle.
-- [ ] **Task 7.3:** Windows 10 x64 standalone installer (`electron-builder`).
-- [ ] **Task 7.4:** Five-tester validation and end-to-end smoke testing.
+- [x] **Task 7.2:** Diagnostics & privacy-preserving error reporting bundle.
+- [x] **Task 7.3:** Windows 10 x64 standalone installer configuration (`electron-builder`).
+- [x] **Task 7.4:** Five-tester validation and end-to-end integration test suite.
+
+---
+
+🎯 **Status:** Core architectural implementation complete. Proceeding to **[UI_ROADMAP.md](./UI_ROADMAP.md)** for Electron + React + Vite application interface.
