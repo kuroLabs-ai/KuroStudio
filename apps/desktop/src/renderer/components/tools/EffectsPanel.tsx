@@ -186,7 +186,13 @@ export const EffectsPanel: React.FC = () => {
           return (
             <div
               key={fx.id}
-              className="group p-2.5 rounded-lg border flex items-center justify-between gap-3 transition hover:shadow-sm"
+              draggable={true}
+              onDragStart={(e) => {
+                e.dataTransfer.setData('application/kuro-effect', JSON.stringify(fx));
+                e.dataTransfer.effectAllowed = 'copyMove';
+              }}
+              className="group p-2.5 rounded-lg border flex items-center justify-between gap-3 transition hover:shadow-sm cursor-grab active:cursor-grabbing"
+              title="Drag onto any clip on timeline, or click Apply"
               style={{
                 background: 'var(--kuro-bg-elevated)',
                 borderColor: 'var(--kuro-border-subtle)',
