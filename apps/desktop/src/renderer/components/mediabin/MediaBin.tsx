@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
+import { timelineStore } from '../../stores/useTimelineStore';
 import { AssetReference } from '@kuro/project-format';
 import { generateId, DEFAULT_TICKS_PER_SECOND } from '@kuro/shared';
 import { AddClipCommand } from '@kuro/editor-core';
@@ -163,8 +164,11 @@ export const MediaBin: React.FC = () => {
   };
 
   const handleAddAssetToTimeline = async (asset: AssetReference) => {
+    // Always read fresh project state — don't close over the stale render-time snapshot
+    const currentProject = editorStore.getProject();
     const targetKind = asset.type === 'audio' ? 'audio' : 'video';
-    const targetTrack = project.tracks.find((t) => t.kind === targetKind) ?? project.tracks[0];
+    const targetTrack =
+      currentProject.tracks.find((t) => t.kind === targetKind) ?? currentProject.tracks[0];
     if (!targetTrack) return;
 
     const lastClipEnd = targetTrack.clips.reduce(
@@ -185,12 +189,15 @@ export const MediaBin: React.FC = () => {
         sourceInTicks: 0,
         sourceOutTicks: clipDuration,
         effects: [],
+        audio: asset.type === 'audio' || asset.type === 'video' ? { volume: 1.0 } : undefined,
       },
       targetTrack.id
     );
 
     await editorStore.executeCommand(cmd);
+    timelineStore.setPlayheadTicks(lastClipEnd);
   };
+
 
   const handleDeleteAsset = (assetId: string, e: React.MouseEvent) => {
     e.stopPropagation();
