@@ -1,0 +1,15 @@
+{
+  "name": "@kuro/ai-core",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@kuro/shared": "workspace:*",
+    "@kuro/project-format": "workspace:*",
+    "@kuro/editor-core": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

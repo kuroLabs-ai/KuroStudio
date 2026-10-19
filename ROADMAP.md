@@ -5,19 +5,19 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 ---
 
 ## 📌 Phase 0 — Foundation & Architecture Setup
-- [ ] **Task 0.1:** Git repository initialization, branching strategy (`main`, `develop`, feature branches).
-- [ ] **Task 0.2:** Monorepo workspace structure setup (`packages/shared`, `packages/project-format`, `packages/editor-core`, `apps/desktop`).
-- [ ] **Task 0.3:** Shared primitives: Time tick mathematics, stable ID generation, error definitions.
-- [ ] **Task 0.4:** Strict TypeScript configurations and package boundaries.
+- [x] **Task 0.1:** Git repository initialization, branching strategy (`main`, `develop`, feature branches).
+- [x] **Task 0.2:** Monorepo workspace structure setup (`packages/shared`, `packages/project-format`, `packages/editor-core`, `packages/ai-core`).
+- [x] **Task 0.3:** Shared primitives: Time tick mathematics, stable ID generation, error definitions.
+- [x] **Task 0.4:** Strict TypeScript configurations and package boundaries.
 
 ---
 
 ## 📌 Phase 1 — Vertical Slice: Project Manifest & Canonical Command Core
-- [ ] **Task 1.1:** `project-format`: Zod schemas and TypeScript types for `Project`, `Track`, `Clip`, `AssetReference`, `ExportSettings`.
-- [ ] **Task 1.2:** `project-format`: Atomic serialization, disk save/load, migration framework, and `.assets/` directory layout.
-- [ ] **Task 1.3:** `editor-core`: Command Bus architecture (`ICommand`, `CommandContext`, `CommandResult`).
-- [ ] **Task 1.4:** `editor-core`: Core timeline commands (`AddClipCommand`, `SplitClipCommand`, `TrimClipCommand`, `MoveClipCommand`, `DeleteClipCommand`).
-- [ ] **Task 1.5:** `editor-core`: Transaction manager and Undo/Redo history stack.
+- [x] **Task 1.1:** `project-format`: Types and schemas for `Project`, `Track`, `Clip`, `AssetReference`, `ExportSettings`.
+- [x] **Task 1.2:** `project-format`: Atomic serialization, disk save/load, migration framework, and `.assets/` directory layout.
+- [x] **Task 1.3:** `editor-core`: Command Bus architecture (`ICommand`, `CommandContext`, `CommandResult`).
+- [x] **Task 1.4:** `editor-core`: Core timeline commands (`AddClipCommand`, `SplitClipCommand`, `TrimClipCommand`, `MoveClipCommand`, `DeleteClipCommand`).
+- [x] **Task 1.5:** `editor-core`: Transaction manager and Undo/Redo history stack.
 - [ ] **Task 1.6:** Desktop shell and basic single-clip import & timeline inspection slice.
 
 ---
@@ -49,12 +49,12 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 ---
 
 ## 📌 Phase 5 — Kuro AI Core & Multi-Provider Adapters
-- [ ] **Task 5.1:** `AIProviderAdapter` interface and secret management via OS `safeStorage`.
+- [x] **Task 5.1:** `AIProviderAdapter` interface and secret management contract.
 - [ ] **Task 5.2:** Cloud provider adapters: OpenAI, Anthropic Claude, Google Gemini, OpenAI-compatible.
 - [ ] **Task 5.3:** Local model adapter: Ollama integration and connectivity probe.
-- [ ] **Task 5.4:** Capability registry, task routing, retry backoff, and ordered fallback engine.
-- [ ] **Task 5.5:** KuroAgent tool registry (inspection tools, timeline editing tools, audio tools).
-- [ ] **Task 5.6:** Agent execution policies: Review Mode (plan & approval) vs. Direct Mode (low/medium risk auto-execute).
+- [x] **Task 5.4:** Capability registry, task routing, retry backoff, and ordered fallback engine.
+- [x] **Task 5.5:** KuroAgent tool registry (inspection tools, timeline editing tools, undo).
+- [x] **Task 5.6:** Agent execution policies: Review Mode (plan & approval) vs. Direct Mode (low/medium risk auto-execute).
 - [ ] **Task 5.7:** Multi-language prompt support (English & Arabic intent parsing).
 
 ---
