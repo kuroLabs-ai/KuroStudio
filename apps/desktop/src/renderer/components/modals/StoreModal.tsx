@@ -6,7 +6,6 @@ import {
   Palette,
   Zap,
   Sparkles,
-  Check,
   Download,
   Trash2,
   X,
@@ -29,18 +28,50 @@ export const StoreModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm select-none">
-      <div className="w-[640px] max-h-[85vh] bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl overflow-hidden flex flex-col text-xs">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm select-none"
+      style={{ background: 'rgba(0,0,0,0.75)' }}
+    >
+      <div
+        className="w-[640px] max-h-[85vh] rounded-xl shadow-2xl overflow-hidden flex flex-col text-xs"
+        style={{
+          background: 'var(--kuro-bg-elevated)',
+          border: '1px solid var(--kuro-border-default)',
+          color: 'var(--kuro-text-primary)',
+        }}
+      >
         {/* Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div
+          className="p-4 flex items-center justify-between"
+          style={{
+            borderBottom: '1px solid var(--kuro-border-default)',
+            background: 'var(--kuro-bg-surface)',
+          }}
+        >
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-pink-500/20 border border-pink-500/30 flex items-center justify-center">
-              <ShoppingBag className="w-4 h-4 text-pink-400" />
+            <div
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{
+                background: 'var(--kuro-bg-muted)',
+                border: '1px solid var(--kuro-border-default)',
+              }}
+            >
+              <ShoppingBag className="w-4 h-4" style={{ color: 'var(--kuro-text-secondary)' }} />
             </div>
             <div>
-              <h2 className="font-bold text-sm text-slate-100 flex items-center gap-2">
+              <h2
+                className="font-bold text-sm flex items-center gap-2"
+                style={{ color: 'var(--kuro-text-primary)' }}
+              >
                 <span>Official Content Store</span>
-                <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-sky-950 text-sky-400 border border-sky-800">
+                <span
+                  className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                  style={{
+                    background: 'var(--kuro-bg-muted)',
+                    color: 'var(--kuro-text-muted)',
+                    border: '1px solid var(--kuro-border-subtle)',
+                  }}
+                >
                   Closed Beta
                 </span>
               </h2>
@@ -48,16 +79,32 @@ export const StoreModal: React.FC = () => {
           </div>
           <button
             onClick={() => modalStore.closeModal()}
-            className="text-slate-400 hover:text-slate-200 p-1 hover:bg-slate-800 rounded transition"
+            className="p-1 rounded transition"
+            style={{ color: 'var(--kuro-text-muted)' }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = 'var(--kuro-bg-muted)';
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--kuro-text-primary)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--kuro-text-muted)';
+            }}
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Catalog Grid */}
+        {/* Catalog */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          <p className="text-slate-400 text-xs flex items-center gap-1.5 bg-slate-950/50 p-2.5 rounded-lg border border-slate-800">
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+          <p
+            className="text-xs flex items-center gap-1.5 p-2.5 rounded-lg"
+            style={{
+              background: 'var(--kuro-bg-surface)',
+              border: '1px solid var(--kuro-border-subtle)',
+              color: 'var(--kuro-text-muted)',
+            }}
+          >
+            <ShieldCheck className="w-4 h-4 shrink-0" style={{ color: 'var(--kuro-text-secondary)' }} />
             <span>
               Download approved KuroLabs asset packs, LUTs, and Remotion scene templates. All content is cryptographically verified.
             </span>
@@ -69,27 +116,48 @@ export const StoreModal: React.FC = () => {
               return (
                 <div
                   key={pack.id}
-                  className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-4 hover:border-slate-700 transition shadow-sm"
+                  className="p-3.5 rounded-xl flex items-center justify-between gap-4 transition"
+                  style={{
+                    background: 'var(--kuro-bg-surface)',
+                    border: '1px solid var(--kuro-border-default)',
+                  }}
                 >
                   <div className="flex items-center gap-3.5">
-                    <div className="w-11 h-11 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-xl shrink-0">
+                    <div
+                      className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0"
+                      style={{
+                        background: 'var(--kuro-bg-muted)',
+                        border: '1px solid var(--kuro-border-default)',
+                      }}
+                    >
                       {pack.category === 'luts' ? (
-                        <Palette className="w-5 h-5 text-amber-400" />
+                        <Palette className="w-5 h-5" style={{ color: 'var(--kuro-text-secondary)' }} />
                       ) : pack.category === 'transitions' ? (
-                        <Zap className="w-5 h-5 text-sky-400" />
+                        <Zap className="w-5 h-5" style={{ color: 'var(--kuro-text-secondary)' }} />
                       ) : (
-                        <Sparkles className="w-5 h-5 text-purple-400" />
+                        <Sparkles className="w-5 h-5" style={{ color: 'var(--kuro-text-secondary)' }} />
                       )}
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-200 text-xs">{pack.title}</span>
-                        <span className="text-[10px] text-slate-500 font-mono bg-slate-900 px-1.5 py-0.2 rounded border border-slate-800">
+                        <span className="font-bold text-xs" style={{ color: 'var(--kuro-text-primary)' }}>
+                          {pack.title}
+                        </span>
+                        <span
+                          className="text-[10px] font-mono px-1.5 rounded"
+                          style={{
+                            background: 'var(--kuro-bg-muted)',
+                            color: 'var(--kuro-text-muted)',
+                            border: '1px solid var(--kuro-border-subtle)',
+                          }}
+                        >
                           v{pack.version}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">{pack.description}</p>
-                      <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-1">
+                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--kuro-text-secondary)' }}>
+                        {pack.description}
+                      </p>
+                      <div className="flex items-center gap-2 text-[10px] mt-1" style={{ color: 'var(--kuro-text-muted)' }}>
                         <span>By {pack.author}</span>
                         <span>•</span>
                         <span>{pack.declaredFiles.length} assets included</span>
@@ -99,11 +167,16 @@ export const StoreModal: React.FC = () => {
 
                   <button
                     onClick={() => handleToggleInstall(pack.id)}
-                    className={`studio-btn text-xs px-3 py-1.5 font-bold shrink-0 transition flex items-center gap-1.5 shadow-sm ${
+                    className="studio-btn text-xs px-3 py-1.5 font-bold shrink-0 flex items-center gap-1.5"
+                    style={
                       isInstalled
-                        ? 'bg-rose-950/60 hover:bg-rose-900 border border-rose-800 text-rose-300'
-                        : 'studio-btn-primary'
-                    }`}
+                        ? {
+                            background: 'var(--kuro-bg-muted)',
+                            border: '1px solid var(--kuro-border-default)',
+                            color: 'var(--kuro-text-secondary)',
+                          }
+                        : {}
+                    }
                   >
                     {isInstalled ? (
                       <>
@@ -124,7 +197,13 @@ export const StoreModal: React.FC = () => {
         </div>
 
         {/* Footer */}
-        <div className="p-3 bg-slate-950 border-t border-slate-800 flex justify-end">
+        <div
+          className="p-3 flex justify-end"
+          style={{
+            background: 'var(--kuro-bg-surface)',
+            borderTop: '1px solid var(--kuro-border-default)',
+          }}
+        >
           <button
             onClick={() => modalStore.closeModal()}
             className="studio-btn studio-btn-secondary px-4 py-1.5"

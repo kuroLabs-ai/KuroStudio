@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { aiStore } from '../../stores/useAIStore';
 import { editorStore } from '../../stores/useEditorStore';
-import { timelineStore } from '../../stores/useTimelineStore';
 import { SplitClipCommand, SetAudioVolumeCommand } from '@kuro/editor-core';
 import {
   Sparkles,
@@ -12,7 +11,7 @@ import {
   CheckCircle2,
   Bot,
   User,
-  AlertTriangle
+  Circle
 } from 'lucide-react';
 
 export const AIAssistantDrawer: React.FC = () => {
@@ -40,7 +39,6 @@ export const AIAssistantDrawer: React.FC = () => {
     setInputText('');
     aiStore.setIsProcessing(true);
 
-    // Simulate intelligent prompt parsing & command planning
     setTimeout(async () => {
       const lower = text.toLowerCase();
       const project = editorStore.getProject();
@@ -65,17 +63,16 @@ export const AIAssistantDrawer: React.FC = () => {
               ],
             });
           } else {
-            // Direct mode
             await editorStore.executeCommand(new SplitClipCommand(activeClip.id, splitPoint));
             aiStore.addMessage({
               role: 'assistant',
-              content: `Successfully split clip "${activeClip.id}" into two sections. Operation recorded in history.`,
+              content: `Split clip "${activeClip.id}" into two sections. Operation recorded in history.`,
             });
           }
         } else {
           aiStore.addMessage({
             role: 'assistant',
-            content: '⚠️ No clip found on the timeline to split. Please add a clip first.',
+            content: 'No clip found on the timeline to split. Please import and add a clip first.',
           });
         }
       } else if (lower.includes('volume') || lower.includes('صوت')) {
@@ -83,18 +80,18 @@ export const AIAssistantDrawer: React.FC = () => {
           await editorStore.executeCommand(new SetAudioVolumeCommand(activeClip.id, 0.4));
           aiStore.addMessage({
             role: 'assistant',
-            content: `Lowered audio volume of clip "${activeClip.id}" to 40%.`,
+            content: `Adjusted audio volume of clip "${activeClip.id}" to 40%.`,
           });
         }
       } else {
         aiStore.addMessage({
           role: 'assistant',
-          content: `I understood your instruction: "${text}". Ready to execute or refine your timeline.`,
+          content: `Understood instruction: "${text}". Ready to execute or refine your timeline.`,
         });
       }
 
       aiStore.setIsProcessing(false);
-    }, 700);
+    }, 600);
   };
 
   const handleApprovePlan = async () => {
@@ -106,7 +103,7 @@ export const AIAssistantDrawer: React.FC = () => {
       await editorStore.executeCommand(new SplitClipCommand(activeClip.id, splitPoint));
       aiStore.addMessage({
         role: 'assistant',
-        content: `Approved plan executed: "${activePlan.summary}". All changes applied transactionally.`,
+        content: `Executed plan: "${activePlan.summary}". All changes applied transactionally.`,
       });
     }
     aiStore.setActivePlan(null);
@@ -114,83 +111,73 @@ export const AIAssistantDrawer: React.FC = () => {
 
   const quickPills = [
     'Split clip here (قص الكليب)',
-    'Lower volume to 40% (وطي الصوت)',
-    'Add motion title intro',
+    'Set volume to 40% (خفض الصوت)',
+    'Add motion title',
   ];
 
   return (
-    <aside className="w-80 h-full bg-slate-900 border-l border-slate-800 flex flex-col select-none z-40 shrink-0 shadow-2xl">
+    <aside className="w-80 h-full bg-[var(--kuro-bg-panel)] border-l border-[var(--kuro-border-subtle)] flex flex-col select-none z-40 shrink-0 shadow-lg transition-colors">
       {/* Header */}
-      <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/70">
+      <div className="p-2.5 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between bg-[var(--kuro-bg-base)]">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-purple-500/20 border border-purple-500/30 flex items-center justify-center">
-            <Sparkles className="w-3.5 h-3.5 text-purple-300 animate-pulse" />
+          <div className="w-5 h-5 rounded-sm bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-subtle)] flex items-center justify-center text-[var(--kuro-text-primary)]">
+            <Sparkles className="w-3 h-3" />
           </div>
-          <h3 className="font-bold text-xs text-purple-200">Kuro AI Copilot</h3>
+          <h3 className="font-semibold text-xs text-[var(--kuro-text-primary)] uppercase tracking-wider">Kuro AI</h3>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           {/* Mode Switcher */}
           <button
             onClick={() => aiStore.setMode(mode === 'direct' ? 'review' : 'direct')}
-            className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider transition flex items-center gap-1 ${
+            className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider transition border ${
               mode === 'review'
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                ? 'bg-[var(--kuro-text-primary)] text-[var(--kuro-bg-canvas)] border-[var(--kuro-text-primary)]'
+                : 'bg-[var(--kuro-bg-surface)] text-[var(--kuro-text-secondary)] border-[var(--kuro-border-subtle)]'
             }`}
             title="Switch execution mode (Direct vs Review)"
           >
-            {mode === 'direct' ? (
-              <>
-                <Zap className="w-2.5 h-2.5 text-emerald-300" />
-                <span>Direct</span>
-              </>
-            ) : (
-              <>
-                <ClipboardList className="w-2.5 h-2.5 text-amber-300" />
-                <span>Review</span>
-              </>
-            )}
+            {mode === 'direct' ? 'Direct' : 'Review'}
           </button>
 
           <button
             onClick={() => aiStore.toggleDrawer()}
-            className="text-slate-400 hover:text-slate-200 p-1 hover:bg-slate-800 rounded transition"
+            className="text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] p-1 rounded transition"
           >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* Active Model Pill */}
-      <div className="px-3 py-1.5 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-        <span>Provider Model:</span>
-        <span className="text-purple-300 font-medium font-mono text-[10px] bg-purple-950/40 px-1.5 py-0.5 rounded border border-purple-800/40">
+      {/* Active Model Subtitle */}
+      <div className="px-3 py-1.5 bg-[var(--kuro-bg-canvas)] border-b border-[var(--kuro-border-subtle)] flex items-center justify-between text-[11px] text-[var(--kuro-text-muted)] font-mono">
+        <span>Model:</span>
+        <span className="text-[var(--kuro-text-secondary)] text-[10px] bg-[var(--kuro-bg-surface)] px-1.5 py-0.2 rounded border border-[var(--kuro-border-subtle)]">
           {activeModel}
         </span>
       </div>
 
-      {/* Chat Messages Log */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      {/* Chat Messages */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
         {messages.map((m, idx) => (
           <div
             key={idx}
-            className={`p-2.5 rounded-lg text-xs leading-relaxed shadow-sm ${
+            className={`p-2.5 rounded text-xs leading-relaxed border ${
               m.role === 'user'
-                ? 'bg-sky-950/60 border border-sky-800/40 text-sky-100 ml-4'
-                : 'bg-slate-800/60 border border-slate-800 text-slate-200 mr-2'
+                ? 'bg-[var(--kuro-bg-surface)] border-[var(--kuro-border-strong)] text-[var(--kuro-text-primary)] ml-3'
+                : 'bg-[var(--kuro-bg-base)] border-[var(--kuro-border-subtle)] text-[var(--kuro-text-secondary)] mr-2'
             }`}
           >
-            <div className="font-semibold text-[10px] uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
+            <div className="font-semibold text-[9px] uppercase tracking-wider text-[var(--kuro-text-muted)] mb-1 flex items-center gap-1 font-mono">
               {m.role === 'user' ? (
                 <>
-                  <User className="w-3 h-3 text-sky-400" />
+                  <User className="w-2.5 h-2.5" />
                   <span>You</span>
                 </>
               ) : (
                 <>
-                  <Bot className="w-3 h-3 text-purple-400" />
-                  <span className="text-purple-300 font-bold">Kuro AI</span>
+                  <Bot className="w-2.5 h-2.5" />
+                  <span>Kuro</span>
                 </>
               )}
             </div>
@@ -200,35 +187,35 @@ export const AIAssistantDrawer: React.FC = () => {
 
         {/* Review Mode Plan Approval Card */}
         {activePlan && (
-          <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-600/50 space-y-2 text-xs shadow-lg">
-            <div className="flex items-center gap-1.5 text-amber-300 font-semibold">
+          <div className="p-3 rounded bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-strong)] space-y-2 text-xs">
+            <div className="flex items-center gap-1.5 text-[var(--kuro-text-primary)] font-semibold text-[11px]">
               <ClipboardList className="w-3.5 h-3.5" />
-              <span>Proposed Execution Plan</span>
+              <span>Proposed Plan</span>
             </div>
-            <p className="text-slate-300">{activePlan.summary}</p>
+            <p className="text-[var(--kuro-text-secondary)]">{activePlan.summary}</p>
 
-            <div className="space-y-1 bg-black/40 p-2 rounded text-[11px]">
+            <div className="space-y-1 bg-[var(--kuro-bg-canvas)] p-2 rounded text-[11px] font-mono">
               {activePlan.operations.map((op) => (
-                <div key={op.id} className="flex justify-between items-center text-slate-400">
+                <div key={op.id} className="flex justify-between items-center text-[var(--kuro-text-muted)]">
                   <span>{op.description}</span>
-                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 font-bold">
+                  <span className="text-[9px] uppercase px-1 rounded border border-[var(--kuro-border-base)]">
                     {op.riskLevel}
                   </span>
                 </div>
               ))}
             </div>
 
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-1.5 pt-1">
               <button
                 onClick={handleApprovePlan}
-                className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-1.5 rounded text-xs transition flex items-center justify-center gap-1"
+                className="kuro-btn kuro-btn-primary flex-1 py-1 font-semibold text-xs"
               >
                 <CheckCircle2 className="w-3 h-3" />
-                <span>Approve & Execute</span>
+                <span>Execute</span>
               </button>
               <button
                 onClick={() => aiStore.setActivePlan(null)}
-                className="px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded text-xs transition"
+                className="kuro-btn kuro-btn-secondary px-3 py-1 text-xs"
               >
                 Cancel
               </button>
@@ -237,20 +224,20 @@ export const AIAssistantDrawer: React.FC = () => {
         )}
 
         {isProcessing && (
-          <div className="flex items-center gap-2 text-purple-400 text-xs italic bg-purple-950/20 p-2 rounded border border-purple-800/30">
-            <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
-            <span>Kuro is inspecting timeline and planning edits...</span>
+          <div className="flex items-center gap-2 text-[var(--kuro-text-muted)] text-xs italic bg-[var(--kuro-bg-surface)] p-2 rounded border border-[var(--kuro-border-subtle)] font-mono">
+            <Circle className="w-2 h-2 text-[var(--kuro-text-primary)] animate-ping" />
+            <span>Analyzing timeline...</span>
           </div>
         )}
       </div>
 
       {/* Suggested Quick Action Pills */}
-      <div className="p-2 border-t border-slate-800/80 bg-slate-950/40 flex flex-wrap gap-1">
+      <div className="p-2 border-t border-[var(--kuro-border-subtle)] bg-[var(--kuro-bg-canvas)] flex flex-wrap gap-1">
         {quickPills.map((pill, idx) => (
           <button
             key={idx}
             onClick={() => handleSendPrompt(pill)}
-            className="text-[10px] px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition"
+            className="text-[10px] px-2 py-0.5 rounded bg-[var(--kuro-bg-surface)] hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-secondary)] border border-[var(--kuro-border-subtle)] transition"
           >
             {pill}
           </button>
@@ -258,28 +245,27 @@ export const AIAssistantDrawer: React.FC = () => {
       </div>
 
       {/* Input Box */}
-      <div className="p-2.5 border-t border-slate-800 bg-slate-950">
+      <div className="p-2.5 border-t border-[var(--kuro-border-subtle)] bg-[var(--kuro-bg-base)]">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             handleSendPrompt();
           }}
-          className="flex gap-2"
+          className="flex gap-1.5"
         >
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Ask Kuro in English or Arabic (اطلب أي أمر)..."
-            className="flex-1 bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500"
+            placeholder="Command Kuro in English or Arabic..."
+            className="flex-1 bg-[var(--kuro-bg-panel)] border border-[var(--kuro-border-subtle)] rounded px-2.5 py-1.5 text-xs text-[var(--kuro-text-primary)] placeholder-[var(--kuro-text-muted)] focus:outline-none focus:border-[var(--kuro-text-primary)] transition"
           />
           <button
             type="submit"
             disabled={!inputText.trim()}
-            className="studio-btn studio-btn-ai text-xs px-3 py-1.5 font-bold disabled:opacity-40 flex items-center gap-1 shadow-sm"
+            className="kuro-btn kuro-btn-primary px-3 py-1.5 font-semibold disabled:opacity-30"
           >
             <Send className="w-3 h-3" />
-            <span>Send</span>
           </button>
         </form>
       </div>
