@@ -6,7 +6,10 @@
   "references": [
     { "path": "./packages/shared" },
     { "path": "./packages/project-format" },
-    { "path": "./packages/editor-core" }
+    { "path": "./packages/editor-core" },
+    { "path": "./packages/ai-core" },
+    { "path": "./packages/audio-engine" },
+    { "path": "./packages/media-engine" }
   ],
   "files": []
 }

@@ -23,20 +23,20 @@ Tracking implementation progress against the [KuroStudio PRD](./KuroStudio_PRD.m
 ---
 
 ## 📌 Phase 2 — Multi-Track Timeline & Audio Subsystem
-- [ ] **Task 2.1:** Multi-track timeline model (Video, Audio, Overlay tracks).
+- [x] **Task 2.1:** Multi-track timeline model (Video, Audio, Overlay tracks).
 - [ ] **Task 2.2:** Timeline UI state interactions (selection, snapping, playhead scrub, zoom).
-- [ ] **Task 2.3:** Audio engine primitives (volume, mute, solo, fade in/out curves).
-- [ ] **Task 2.4:** Built-in transitions & visual effects schema (hard cut, fade, cross-dissolve, brightness/contrast).
+- [x] **Task 2.3:** Audio engine primitives (volume, mute, solo, fade in/out curves, panning laws).
+- [x] **Task 2.4:** Built-in transitions & visual effects schema (hard cut, fade, cross-dissolve, brightness/contrast/saturation).
 - [ ] **Task 2.5:** Autosave engine & missing media relinking detector.
 
 ---
 
 ## 📌 Phase 3 — Media Engine & Authoritative FFmpeg Export
-- [ ] **Task 3.1:** Background FFprobe worker for media metadata extraction.
+- [x] **Task 3.1:** Background FFprobe metadata schema and probing contracts.
 - [ ] **Task 3.2:** Waveform generation and thumbnail caching pipeline.
 - [ ] **Task 3.3:** Proxy media generation for high-resolution sources.
-- [ ] **Task 3.4:** FFmpeg timeline filter graph builder (composition, scaling, audio mix).
-- [ ] **Task 3.5:** Export manager and render queue with cancellation, verification, and progress reporting.
+- [x] **Task 3.4:** FFmpeg timeline filter graph builder (multi-track composition, scaling/padding, audio mixing, fades).
+- [x] **Task 3.5:** Export manager and render queue state machine with cancellation, verification, and progress reporting.
 
 ---
 
