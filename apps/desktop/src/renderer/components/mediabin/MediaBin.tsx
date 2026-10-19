@@ -209,7 +209,7 @@ export const MediaBin: React.FC = () => {
 
   return (
     <div
-      className={`h-full flex flex-col bg-[var(--kuro-bg-panel)] border-r border-[var(--kuro-border-subtle)] select-none overflow-hidden transition-colors ${
+      className={`h-full flex flex-col bg-[var(--kuro-bg-panel)] select-none overflow-hidden transition-colors ${
         isDragging ? 'ring-1 ring-[var(--kuro-text-primary)] ring-inset' : ''
       }`}
       onDragOver={(e) => {

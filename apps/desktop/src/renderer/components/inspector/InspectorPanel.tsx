@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
+import { layoutStore } from '../../stores/useLayoutStore';
 import { SetAudioVolumeCommand, ApplyEffectCommand, RemoveEffectCommand } from '@kuro/editor-core';
 import {
   Sliders,
@@ -9,7 +10,7 @@ import {
   Sparkles,
   X,
   SlidersHorizontal,
-  Film
+  ChevronRight
 } from 'lucide-react';
 
 export const InspectorPanel: React.FC = () => {
@@ -61,14 +62,32 @@ export const InspectorPanel: React.FC = () => {
 
   if (!selectedClip) {
     return (
-      <div className="h-full bg-[var(--kuro-bg-panel)] border-l border-[var(--kuro-border-subtle)] p-4 select-none flex flex-col items-center justify-center text-center text-[var(--kuro-text-muted)] text-xs transition-colors duration-150">
-        <div className="w-10 h-10 rounded-full bg-[var(--kuro-bg-surface)] flex items-center justify-center mb-2 text-[var(--kuro-text-muted)]">
-          <SlidersHorizontal className="w-5 h-5" />
+      <div className="h-full bg-[var(--kuro-bg-panel)] border-l border-[var(--kuro-border-subtle)] select-none flex flex-col text-xs transition-colors">
+        {/* Header */}
+        <div className="h-8 px-3 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between bg-[var(--kuro-bg-panel)] shrink-0">
+          <div className="flex items-center gap-1.5 font-bold text-[var(--kuro-text-primary)] uppercase tracking-wider text-xs">
+            <Sliders className="w-3.5 h-3.5 text-[var(--kuro-text-secondary)]" />
+            <span>Inspector</span>
+          </div>
+          <button
+            onClick={() => layoutStore.toggleInspector()}
+            className="p-1 rounded hover:bg-[var(--kuro-bg-hover)] transition text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)]"
+            title="Collapse Inspector"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
         </div>
-        <p className="font-semibold text-[var(--kuro-text-primary)] text-xs">Inspector</p>
-        <p className="text-[11px] text-[var(--kuro-text-muted)] mt-1 max-w-[170px]">
-          Select any clip on the timeline to tweak volume, timing & visual effects
-        </p>
+
+        {/* Empty placeholder */}
+        <div className="flex-1 flex flex-col items-center justify-center p-4 text-center text-[var(--kuro-text-muted)]">
+          <div className="w-10 h-10 rounded-full bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-subtle)] flex items-center justify-center mb-2 text-[var(--kuro-text-muted)]">
+            <SlidersHorizontal className="w-5 h-5" />
+          </div>
+          <p className="font-semibold text-[var(--kuro-text-primary)] text-xs">No Clip Selected</p>
+          <p className="text-[11px] text-[var(--kuro-text-muted)] mt-1 max-w-[170px]">
+            Select any clip on the timeline to tweak volume, timing & visual effects
+          </p>
+        </div>
       </div>
     );
   }
@@ -79,23 +98,32 @@ export const InspectorPanel: React.FC = () => {
   const durationSec = (selectedClip.durationTicks / project.timelineTimebase).toFixed(2);
 
   return (
-    <div className="h-full bg-[var(--kuro-bg-panel)] border-l border-[var(--kuro-border-subtle)] select-none overflow-y-auto text-xs flex flex-col transition-colors duration-150">
+    <div className="h-full bg-[var(--kuro-bg-panel)] border-l border-[var(--kuro-border-subtle)] select-none overflow-y-auto text-xs flex flex-col transition-colors">
       {/* Header */}
-      <div className="p-2.5 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between bg-[var(--kuro-bg-base)]">
+      <div className="h-8 px-3 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between bg-[var(--kuro-bg-panel)] shrink-0">
         <div className="flex items-center gap-1.5 font-bold text-[var(--kuro-text-primary)] uppercase tracking-wider text-xs">
-          <Sliders className="w-3.5 h-3.5 text-[var(--kuro-accent-primary)]" />
+          <Sliders className="w-3.5 h-3.5 text-[var(--kuro-text-secondary)]" />
           <span>Inspector</span>
         </div>
-        <span className="text-[10px] text-[var(--kuro-accent-primary)] bg-[var(--kuro-bg-surface)] px-2 py-0.5 rounded border border-[var(--kuro-border-subtle)] font-mono font-medium truncate max-w-[120px]">
-          {asset?.name ?? selectedClip.id}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-[var(--kuro-text-secondary)] bg-[var(--kuro-bg-surface)] px-2 py-0.5 rounded border border-[var(--kuro-border-subtle)] font-mono font-medium truncate max-w-[110px]">
+            {asset?.name ?? selectedClip.id}
+          </span>
+          <button
+            onClick={() => layoutStore.toggleInspector()}
+            className="p-1 rounded hover:bg-[var(--kuro-bg-hover)] transition text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)]"
+            title="Collapse Inspector"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
-      <div className="p-3 space-y-3.5">
+      <div className="p-3 space-y-3.5 flex-1 overflow-y-auto">
         {/* Clip Timing Summary */}
         <div className="bg-[var(--kuro-bg-surface)] p-2.5 rounded-lg border border-[var(--kuro-border-subtle)] space-y-1.5 shadow-sm">
           <div className="flex items-center gap-1.5 font-semibold text-[var(--kuro-text-primary)] text-xs">
-            <Clock className="w-3 h-3 text-[var(--kuro-accent-primary)]" />
+            <Clock className="w-3 h-3 text-[var(--kuro-text-secondary)]" />
             <span>Clip Timing</span>
           </div>
           <div className="grid grid-cols-2 gap-2 text-[var(--kuro-text-muted)] text-[11px]">
@@ -108,10 +136,10 @@ export const InspectorPanel: React.FC = () => {
         <div className="space-y-1.5 bg-[var(--kuro-bg-surface)] p-2.5 rounded-lg border border-[var(--kuro-border-subtle)] shadow-sm">
           <div className="flex justify-between items-center text-[var(--kuro-text-primary)]">
             <span className="font-semibold flex items-center gap-1.5">
-              <Volume2 className="w-3 h-3 text-emerald-500" />
+              <Volume2 className="w-3 h-3 text-[var(--kuro-text-secondary)]" />
               <span>Audio Level</span>
             </span>
-            <span className="font-mono text-emerald-500 font-semibold text-[11px]">{(volume * 100).toFixed(0)}%</span>
+            <span className="font-mono text-[var(--kuro-text-primary)] font-semibold text-[11px]">{(volume * 100).toFixed(0)}%</span>
           </div>
           <input
             type="range"
@@ -120,7 +148,7 @@ export const InspectorPanel: React.FC = () => {
             step="0.05"
             value={volume}
             onChange={handleVolumeChange}
-            className="w-full accent-emerald-500 cursor-pointer"
+            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
           />
         </div>
 
@@ -128,7 +156,7 @@ export const InspectorPanel: React.FC = () => {
         <div className="space-y-2 pt-1 border-t border-[var(--kuro-border-subtle)]">
           <div className="flex justify-between items-center">
             <span className="font-semibold text-[var(--kuro-text-primary)] flex items-center gap-1.5">
-              <Sparkles className="w-3 h-3 text-[var(--kuro-accent-ai)]" />
+              <Sparkles className="w-3 h-3 text-[var(--kuro-text-secondary)]" />
               <span>Effects ({selectedClip.effects.length})</span>
             </span>
             <select
@@ -138,7 +166,7 @@ export const InspectorPanel: React.FC = () => {
                   e.target.value = '';
                 }
               }}
-              className="bg-[var(--kuro-bg-surface)] text-[var(--kuro-accent-primary)] border border-[var(--kuro-border-subtle)] text-[11px] rounded px-2 py-0.5 focus:outline-none cursor-pointer"
+              className="bg-[var(--kuro-bg-surface)] text-[var(--kuro-text-primary)] border border-[var(--kuro-border-subtle)] text-[11px] rounded px-2 py-0.5 focus:outline-none cursor-pointer"
             >
               <option value="">+ Add Effect</option>
               <option value="brightness">Brightness</option>
@@ -160,7 +188,7 @@ export const InspectorPanel: React.FC = () => {
                   <span className="capitalize text-[var(--kuro-text-primary)] font-medium text-xs">{effect.effectType}</span>
                   <button
                     onClick={() => handleRemoveEffect(effect.id)}
-                    className="p-1 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded transition"
+                    className="p-1 text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)] rounded transition"
                     title="Remove Effect"
                   >
                     <X className="w-3 h-3" />

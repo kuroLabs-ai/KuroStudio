@@ -3,6 +3,7 @@ import { editorStore } from '../../stores/useEditorStore';
 import { aiStore } from '../../stores/useAIStore';
 import { modalStore } from '../../stores/useModalStore';
 import { themeStore } from '../../stores/useThemeStore';
+import { layoutStore } from '../../stores/useLayoutStore';
 import {
   Undo2,
   Redo2,
@@ -13,7 +14,11 @@ import {
   Save,
   Sun,
   Moon,
-  Circle
+  Circle,
+  PanelLeft,
+  PanelRight,
+  PanelBottom,
+  RotateCcw
 } from 'lucide-react';
 
 export const TopBar: React.FC = () => {
@@ -23,10 +28,12 @@ export const TopBar: React.FC = () => {
     const unsubEditor = editorStore.subscribe(() => setTick((t) => t + 1));
     const unsubAI = aiStore.subscribe(() => setTick((t) => t + 1));
     const unsubTheme = themeStore.subscribe(() => setTick((t) => t + 1));
+    const unsubLayout = layoutStore.subscribe(() => setTick((t) => t + 1));
     return () => {
       unsubEditor();
       unsubAI();
       unsubTheme();
+      unsubLayout();
     };
   }, []);
 
@@ -36,6 +43,10 @@ export const TopBar: React.FC = () => {
   const canRedo = editorStore.canRedo();
   const isDrawerOpen = aiStore.getIsDrawerOpen();
   const currentTheme = themeStore.getTheme();
+
+  const isLeftPanelVisible = layoutStore.isLeftPanelVisible();
+  const isInspectorVisible = layoutStore.isInspectorVisible();
+  const isTimelineVisible = layoutStore.isTimelineVisible();
 
   const handleUndo = async () => {
     await editorStore.undo();
@@ -50,7 +61,7 @@ export const TopBar: React.FC = () => {
   };
 
   return (
-    <header className="h-10 bg-[var(--kuro-bg-panel)] border-b border-[var(--kuro-border-subtle)] flex items-center justify-between px-3 select-none shrink-0 z-20">
+    <header className="h-10 bg-[var(--kuro-bg-panel)] border-b border-[var(--kuro-border-subtle)] flex items-center justify-between px-3 select-none shrink-0 z-30">
       {/* Brand & Project Info */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2 font-bold text-xs tracking-wider uppercase text-[var(--kuro-text-primary)]">
@@ -83,34 +94,83 @@ export const TopBar: React.FC = () => {
         </div>
       </div>
 
-      {/* History Controls */}
-      <div className="flex items-center gap-0.5 bg-[var(--kuro-bg-canvas)] p-0.5 rounded border border-[var(--kuro-border-subtle)]">
-        <button
-          onClick={handleUndo}
-          disabled={!canUndo}
-          className={`px-2 py-1 text-xs rounded font-medium flex items-center gap-1 transition ${
-            canUndo
-              ? 'text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)]'
-              : 'text-[var(--kuro-text-faint)] cursor-not-allowed opacity-30'
-          }`}
-          title="Undo (Ctrl+Z)"
-        >
-          <Undo2 className="w-3 h-3" />
-          <span className="text-[11px]">Undo</span>
-        </button>
-        <button
-          onClick={handleRedo}
-          disabled={!canRedo}
-          className={`px-2 py-1 text-xs rounded font-medium flex items-center gap-1 transition ${
-            canRedo
-              ? 'text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)]'
-              : 'text-[var(--kuro-text-faint)] cursor-not-allowed opacity-30'
-          }`}
-          title="Redo (Ctrl+Y)"
-        >
-          <Redo2 className="w-3 h-3" />
-          <span className="text-[11px]">Redo</span>
-        </button>
+      {/* History Controls & Layout Panel Toggles */}
+      <div className="flex items-center gap-2">
+        {/* Undo / Redo */}
+        <div className="flex items-center gap-0.5 bg-[var(--kuro-bg-canvas)] p-0.5 rounded border border-[var(--kuro-border-subtle)]">
+          <button
+            onClick={handleUndo}
+            disabled={!canUndo}
+            className={`px-2 py-1 text-xs rounded font-medium flex items-center gap-1 transition ${
+              canUndo
+                ? 'text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)]'
+                : 'text-[var(--kuro-text-faint)] cursor-not-allowed opacity-30'
+            }`}
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo2 className="w-3 h-3" />
+            <span className="text-[11px] hidden sm:inline">Undo</span>
+          </button>
+          <button
+            onClick={handleRedo}
+            disabled={!canRedo}
+            className={`px-2 py-1 text-xs rounded font-medium flex items-center gap-1 transition ${
+              canRedo
+                ? 'text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)]'
+                : 'text-[var(--kuro-text-faint)] cursor-not-allowed opacity-30'
+            }`}
+            title="Redo (Ctrl+Y)"
+          >
+            <Redo2 className="w-3 h-3" />
+            <span className="text-[11px] hidden sm:inline">Redo</span>
+          </button>
+        </div>
+
+        <div className="h-3 w-px bg-[var(--kuro-border-base)] hidden md:block" />
+
+        {/* Layout Panel Toggles (Show/Hide Panels) */}
+        <div className="hidden md:flex items-center gap-0.5 bg-[var(--kuro-bg-canvas)] p-0.5 rounded border border-[var(--kuro-border-subtle)]">
+          <button
+            onClick={() => layoutStore.toggleLeftPanel()}
+            className={`p-1 rounded text-xs transition ${
+              isLeftPanelVisible
+                ? 'bg-[var(--kuro-bg-elevated)] text-[var(--kuro-text-primary)] font-semibold'
+                : 'text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)]'
+            }`}
+            title={isLeftPanelVisible ? 'Hide Tools & Media Drawer' : 'Show Tools & Media Drawer'}
+          >
+            <PanelLeft className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => layoutStore.toggleTimeline()}
+            className={`p-1 rounded text-xs transition ${
+              isTimelineVisible
+                ? 'bg-[var(--kuro-bg-elevated)] text-[var(--kuro-text-primary)] font-semibold'
+                : 'text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)]'
+            }`}
+            title={isTimelineVisible ? 'Hide Full-Width Timeline' : 'Show Full-Width Timeline'}
+          >
+            <PanelBottom className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => layoutStore.toggleInspector()}
+            className={`p-1 rounded text-xs transition ${
+              isInspectorVisible
+                ? 'bg-[var(--kuro-bg-elevated)] text-[var(--kuro-text-primary)] font-semibold'
+                : 'text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)]'
+            }`}
+            title={isInspectorVisible ? 'Hide Inspector Panel' : 'Show Inspector Panel'}
+          >
+            <PanelRight className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => layoutStore.resetLayout()}
+            className="p-1 rounded text-xs text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)] transition"
+            title="Reset Workspace Layout to Default"
+          >
+            <RotateCcw className="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
       {/* Action Buttons, Monochrome Theme Switcher & AI Drawer */}
@@ -122,9 +182,9 @@ export const TopBar: React.FC = () => {
           title={`Switch to ${currentTheme === 'dark' ? 'Light' : 'Dark'} Mode`}
         >
           {currentTheme === 'dark' ? (
-            <Sun className="w-3.5 h-3.5 text-white" />
+            <Sun className="w-3.5 h-3.5" />
           ) : (
-            <Moon className="w-3.5 h-3.5 text-black" />
+            <Moon className="w-3.5 h-3.5" />
           )}
         </button>
 
@@ -134,7 +194,7 @@ export const TopBar: React.FC = () => {
           title="Open Official Content Store"
         >
           <ShoppingBag className="w-3.5 h-3.5" />
-          <span>Store</span>
+          <span className="hidden sm:inline">Store</span>
         </button>
 
         <button
@@ -143,7 +203,7 @@ export const TopBar: React.FC = () => {
           title="Settings & AI Providers"
         >
           <Settings className="w-3.5 h-3.5" />
-          <span>Settings</span>
+          <span className="hidden sm:inline">Settings</span>
         </button>
 
         <button
