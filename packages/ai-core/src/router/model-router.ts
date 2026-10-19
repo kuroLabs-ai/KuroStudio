@@ -128,7 +128,7 @@ export class ModelRouter {
 
   private satisfiesCapabilities(available: ModelCapability, required: Partial<ModelCapability>): boolean {
     for (const [key, reqVal] of Object.entries(required)) {
-      if (reqVal === true && !(available as Record<string, unknown>)[key]) {
+      if (reqVal === true && !(available as unknown as Record<string, unknown>)[key]) {
         return false;
       }
     }

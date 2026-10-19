@@ -6,6 +6,7 @@ import {
   ProviderCompletionRequest,
   ProviderCompletionResponse,
   ToolCall,
+  ToolDefinition,
 } from '@kuro/ai-core';
 
 export interface OpenAIConfig {
@@ -75,7 +76,7 @@ export class OpenAIAdapter implements AIProviderAdapter {
   }
 
   public async complete(request: ProviderCompletionRequest): Promise<ProviderCompletionResponse> {
-    const formattedTools = request.tools?.map((t) => ({
+    const formattedTools = request.tools?.map((t: ToolDefinition) => ({
       type: 'function',
       function: {
         name: t.name,

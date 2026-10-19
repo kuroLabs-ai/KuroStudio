@@ -5,8 +5,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
-    "@kuro/shared": "workspace:*",
-    "@kuro/ai-core": "workspace:*"
+    "@kuro/shared": "*",
+    "@kuro/ai-core": "*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

@@ -1,24 +1,36 @@
 import { defineConfig } from 'vite';
-import path from 'path';
+import react from '@vitejs/plugin-react';
+import { fileURLToPath, URL } from 'node:url';
+
+// ESM-safe __dirname replacement
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
   root: '.',
   base: './',
+  plugins: [
+    react(), // Enables React Fast Refresh + automatic JSX runtime
+  ],
   build: {
     outDir: 'dist/renderer',
     emptyOutDir: true,
+    // Separate electron main from renderer
+    rollupOptions: {
+      external: ['electron'],
+    },
   },
   resolve: {
     alias: {
-      '@kuro/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
-      '@kuro/project-format': path.resolve(__dirname, '../../packages/project-format/src/index.ts'),
-      '@kuro/editor-core': path.resolve(__dirname, '../../packages/editor-core/src/index.ts'),
-      '@kuro/ai-core': path.resolve(__dirname, '../../packages/ai-core/src/index.ts'),
-      '@kuro/ai-providers': path.resolve(__dirname, '../../packages/ai-providers/src/index.ts'),
-      '@kuro/audio-engine': path.resolve(__dirname, '../../packages/audio-engine/src/index.ts'),
-      '@kuro/media-engine': path.resolve(__dirname, '../../packages/media-engine/src/index.ts'),
-      '@kuro/remotion-bridge': path.resolve(__dirname, '../../packages/remotion-bridge/src/index.ts'),
-      '@kuro/store': path.resolve(__dirname, '../../packages/store/src/index.ts'),
+      // Resolve workspace packages directly from source (no build step needed)
+      '@kuro/shared':         fileURLToPath(new URL('../../packages/shared/src/index.ts',         import.meta.url)),
+      '@kuro/project-format': fileURLToPath(new URL('../../packages/project-format/src/index.ts', import.meta.url)),
+      '@kuro/editor-core':    fileURLToPath(new URL('../../packages/editor-core/src/index.ts',    import.meta.url)),
+      '@kuro/ai-core':        fileURLToPath(new URL('../../packages/ai-core/src/index.ts',        import.meta.url)),
+      '@kuro/ai-providers':   fileURLToPath(new URL('../../packages/ai-providers/src/index.ts',   import.meta.url)),
+      '@kuro/audio-engine':   fileURLToPath(new URL('../../packages/audio-engine/src/index.ts',   import.meta.url)),
+      '@kuro/media-engine':   fileURLToPath(new URL('../../packages/media-engine/src/index.ts',   import.meta.url)),
+      '@kuro/remotion-bridge':fileURLToPath(new URL('../../packages/remotion-bridge/src/index.ts',import.meta.url)),
+      '@kuro/store':          fileURLToPath(new URL('../../packages/store/src/index.ts',          import.meta.url)),
     },
   },
   server: {

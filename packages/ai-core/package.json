@@ -5,9 +5,9 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
-    "@kuro/shared": "workspace:*",
-    "@kuro/project-format": "workspace:*",
-    "@kuro/editor-core": "workspace:*"
+    "@kuro/shared": "*",
+    "@kuro/project-format": "*",
+    "@kuro/editor-core": "*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

@@ -166,6 +166,6 @@ flowchart TD
 ---
 
 ### 🧪 Phase UI-8: Polish, Keyboard Shortcuts & Diagnostics
-- [ ] **UI-8.1:** Keyboard shortcut manager (`Space`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+K`, `Delete`, `Ctrl+S`, `F11`).
-- [ ] **UI-8.2:** Missing media relink dialog modal.
-- [ ] **UI-8.3:** Privacy-preserving diagnostic bundle preview & report modal.
+- [x] **UI-8.1:** Keyboard shortcut manager (`Space`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+K`, `Delete`, `Ctrl+S`, `Ctrl+Space`).
+- [x] **UI-8.2:** Missing media relink dialog & status indicator.
+- [x] **UI-8.3:** Privacy-preserving diagnostic bundle preview & report modal.

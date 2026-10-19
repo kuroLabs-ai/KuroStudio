@@ -8,6 +8,7 @@ build/
 release/
 out/
 *.bundle.js
+*.tsbuildinfo
 
 # Project-managed media & user caches
 *.assets/
