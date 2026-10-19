@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
+import { layoutStore } from '../../stores/useLayoutStore';
 import { formatTimecode } from '@kuro/shared';
 import {
   Play,
@@ -12,7 +13,9 @@ import {
   Monitor,
   Volume2,
   VolumeX,
-  Circle
+  Circle,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 export const PreviewMonitor: React.FC = () => {
@@ -26,9 +29,11 @@ export const PreviewMonitor: React.FC = () => {
   useEffect(() => {
     const unsubEditor = editorStore.subscribe(() => setTick((t) => t + 1));
     const unsubTimeline = timelineStore.subscribe(() => setTick((t) => t + 1));
+    const unsubLayout = layoutStore.subscribe(() => setTick((t) => t + 1));
     return () => {
       unsubEditor();
       unsubTimeline();
+      unsubLayout();
     };
   }, []);
 
@@ -161,6 +166,31 @@ export const PreviewMonitor: React.FC = () => {
             <option value="720p">720p 1/2</option>
             <option value="540p">540p Proxy</option>
           </select>
+
+          <button
+            onClick={() => {
+              const isMaximized = !layoutStore.isLeftPanelVisible() && !layoutStore.isInspectorVisible() && !layoutStore.isTimelineVisible();
+              if (isMaximized) {
+                layoutStore.resetLayout();
+              } else {
+                if (layoutStore.isLeftPanelVisible()) layoutStore.toggleLeftPanel();
+                if (layoutStore.isInspectorVisible()) layoutStore.toggleInspector();
+                if (layoutStore.isTimelineVisible()) layoutStore.toggleTimeline();
+              }
+            }}
+            className="p-1 rounded text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)] transition"
+            title={
+              !layoutStore.isLeftPanelVisible() && !layoutStore.isInspectorVisible() && !layoutStore.isTimelineVisible()
+                ? 'Restore Panels'
+                : 'Maximize Preview (Hide other panels)'
+            }
+          >
+            {!layoutStore.isLeftPanelVisible() && !layoutStore.isInspectorVisible() && !layoutStore.isTimelineVisible() ? (
+              <Minimize2 className="w-3.5 h-3.5" />
+            ) : (
+              <Maximize2 className="w-3.5 h-3.5" />
+            )}
+          </button>
         </div>
       </div>
 

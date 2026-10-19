@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { SplitClipCommand, DeleteClipCommand, MuteTrackCommand } from '@kuro/editor-core';
+import { layoutStore } from '../../stores/useLayoutStore';
 import {
   Scissors,
   Trash2,
@@ -12,7 +13,8 @@ import {
   VolumeX,
   Video,
   Music,
-  Clock
+  Clock,
+  ChevronDown
 } from 'lucide-react';
 
 export const TimelineView: React.FC = () => {
@@ -171,6 +173,16 @@ export const TimelineView: React.FC = () => {
               <ZoomIn className="w-3 h-3" />
             </button>
           </div>
+
+          <div className="h-3 w-px bg-[var(--kuro-border-base)] mx-0.5" />
+
+          <button
+            onClick={() => layoutStore.toggleTimeline()}
+            className="p-1 rounded hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] transition"
+            title="Collapse Timeline"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
