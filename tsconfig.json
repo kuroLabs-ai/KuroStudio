@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false
+  },
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/project-format" },
+    { "path": "./packages/editor-core" }
+  ],
+  "files": []
+}
