@@ -106,7 +106,7 @@ class TimelineStore {
   }
 
   public setZoom(zoom: number): void {
-    this.zoom = Math.max(0.2, Math.min(5.0, zoom));
+    this.zoom = Math.max(0.02, Math.min(6.0, zoom));
     this.notify();
   }
 
