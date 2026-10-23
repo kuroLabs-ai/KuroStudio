@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
-import { timelineStore } from '../../stores/useTimelineStore';
+import { timelineStore, TimelineTool } from '../../stores/useTimelineStore';
 import {
   SplitClipCommand,
   DeleteClipCommand,
   MuteTrackCommand,
   AddClipCommand,
+  TrimClipCommand,
   AddTransitionCommand,
   ApplyEffectCommand,
   MoveClipCommand
@@ -29,7 +30,12 @@ import {
   Sparkles,
   X,
   Plus,
-  MoveHorizontal
+  MoveHorizontal,
+  MousePointer,
+  Gauge,
+  Snowflake,
+  Unlink,
+  FastForward
 } from 'lucide-react';
 
 export const TimelineView: React.FC = () => {
@@ -51,7 +57,7 @@ export const TimelineView: React.FC = () => {
   const [movingClip, setMovingClip] = useState<{
     clipId: string;
     originalTrackId: string;
-    targetTrackId: string; // can change as user moves cursor across layers
+    targetTrackId: string;
     originalTicks: number;
     currentTicks: number;
     startX: number;
@@ -59,6 +65,27 @@ export const TimelineView: React.FC = () => {
     clipKind: 'video' | 'audio';
     durationTicks: number;
   } | null>(null);
+
+  // Interactive Edge Trimming State (Extending or Compressing Duration)
+  const [trimmingClip, setTrimmingClip] = useState<{
+    clipId: string;
+    trackId: string;
+    edge: 'start' | 'end';
+    initialStartTicks: number;
+    initialDurationTicks: number;
+    currentStartTicks: number;
+    currentDurationTicks: number;
+    startX: number;
+  } | null>(null);
+
+  // Razor Blade Hover Guide State
+  const [razorHover, setRazorHover] = useState<{
+    clipId: string;
+    ticks: number;
+  } | null>(null);
+
+  // Speed selection dropdown visibility
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
 
   useEffect(() => {
     const unsubEditor = editorStore.subscribe(() => setTick((t) => t + 1));
@@ -73,7 +100,18 @@ export const TimelineView: React.FC = () => {
   const playheadTicks = timelineStore.getPlayheadTicks();
   const zoom = timelineStore.getZoom();
   const isPlaying = timelineStore.getIsPlaying();
+  const activeTool = timelineStore.getActiveTool();
   const selectedClipIds = timelineStore.getSelectedClipIds();
+
+  // Selected clip object if any
+  const selectedClip = React.useMemo(() => {
+    if (!selectedClipIds[0]) return null;
+    for (const t of project.tracks) {
+      const found = t.clips.find((c) => c.id === selectedClipIds[0]);
+      if (found) return { clip: found, track: t };
+    }
+    return null;
+  }, [project.tracks, selectedClipIds]);
 
   // Pixels per second calculation based on zoom
   const basePixelsPerSecond = 50;
@@ -81,10 +119,6 @@ export const TimelineView: React.FC = () => {
   const pixelsPerTick = pixelsPerSecond / project.timelineTimebase;
 
   // Track Categorization for NLE Layer Stacking Order:
-  // Overlay video tracks (added via +V) on TOP
-  // Main Video (V1) – the base video track – in the middle
-  // Main Audio (A1) – the base audio track – below video
-  // Extra audio tracks (added via +A) at the BOTTOM
   const videoTracks = project.tracks.filter((t) => t.kind === 'video');
   const audioTracks = project.tracks.filter((t) => t.kind === 'audio');
 
@@ -100,7 +134,7 @@ export const TimelineView: React.FC = () => {
     ...extraAudioTracks,
   ];
 
-  // Auto-follow playhead during playback (keeps needle inside viewport)
+  // Auto-follow playhead during playback
   useEffect(() => {
     if (!isPlaying) return;
     const container = scrollContainerRef.current;
@@ -117,7 +151,7 @@ export const TimelineView: React.FC = () => {
     }
   }, [playheadTicks, isPlaying, pixelsPerTick]);
 
-  // Horizontal Wheel Scroll & Ctrl+Wheel Zoom Listener
+  // Horizontal Wheel Scroll & Zoom Listener
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -140,7 +174,7 @@ export const TimelineView: React.FC = () => {
     return () => container.removeEventListener('wheel', handleWheel);
   }, []);
 
-  // Multi-Layer Management: Add Video / Overlay Layer on Top
+  // Multi-Layer: Add Video / Overlay Layer on Top
   const handleAddVideoTrack = (): string => {
     const currentProj = editorStore.getProject();
     const existingVideo = currentProj.tracks.filter((t) => t.kind === 'video');
@@ -163,7 +197,7 @@ export const TimelineView: React.FC = () => {
     return newTrack.id;
   };
 
-  // Multi-Layer Management: Add Audio Layer at Bottom
+  // Multi-Layer: Add Audio Layer at Bottom
   const handleAddAudioTrack = (): string => {
     const currentProj = editorStore.getProject();
     const existingAudio = currentProj.tracks.filter((t) => t.kind === 'audio');
@@ -186,7 +220,7 @@ export const TimelineView: React.FC = () => {
     return newTrack.id;
   };
 
-  // Delete Track (protecting the 2 main tracks)
+  // Delete Track
   const handleDeleteTrack = (trackId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const currentProj = editorStore.getProject();
@@ -197,7 +231,7 @@ export const TimelineView: React.FC = () => {
     });
   };
 
-  // Safely move clip to new position and/or to another track with collision handling
+  // Move Clip Safely Across Tracks & Time
   const moveClipSafely = async (clipId: string, desiredTicks: number, destTrackId: string) => {
     const currentProj = editorStore.getProject();
     let sourceTrack: Track | undefined;
@@ -273,12 +307,137 @@ export const TimelineView: React.FC = () => {
     timelineStore.selectClip(clipId);
   };
 
-  // Live Clip Moving Drag Handler: supports moving horizontally in time AND vertically between layers
+  // ─── Interactive Edge Trimming Handler (Extending / Compressing) ───────────
+  useEffect(() => {
+    if (!trimmingClip) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - trimmingClip.startX;
+      const deltaTicks = Math.round(deltaX / pixelsPerTick);
+
+      const track = project.tracks.find((t) => t.id === trimmingClip.trackId);
+      const clipIndex = track?.clips.findIndex((c) => c.id === trimmingClip.clipId) ?? -1;
+      const prevClip = clipIndex > 0 ? track?.clips[clipIndex - 1] : undefined;
+      const nextClip = track && clipIndex < track.clips.length - 1 ? track.clips[clipIndex + 1] : undefined;
+
+      const minDuration = Math.round(project.timelineTimebase * 0.2); // minimum 0.2s
+
+      if (trimmingClip.edge === 'start') {
+        let proposedStart = trimmingClip.initialStartTicks + deltaTicks;
+        // Limit: cannot make clip shorter than minDuration
+        proposedStart = Math.min(
+          trimmingClip.initialStartTicks + trimmingClip.initialDurationTicks - minDuration,
+          proposedStart
+        );
+        // Limit: cannot be before tick 0
+        proposedStart = Math.max(0, proposedStart);
+        // Limit: collision with previous clip on same track
+        if (prevClip) {
+          const prevEnd = prevClip.timelineStartTicks + prevClip.durationTicks;
+          proposedStart = Math.max(prevEnd, proposedStart);
+        }
+
+        // Snapping to playhead
+        if (timelineStore.getIsSnappingEnabled()) {
+          const snapThreshold = Math.round(16 / pixelsPerTick);
+          if (Math.abs(proposedStart - playheadTicks) < snapThreshold) {
+            proposedStart = playheadTicks;
+          }
+        }
+
+        const newDuration = trimmingClip.initialDurationTicks - (proposedStart - trimmingClip.initialStartTicks);
+        setTrimmingClip((prev) =>
+          prev ? { ...prev, currentStartTicks: proposedStart, currentDurationTicks: newDuration } : null
+        );
+      } else {
+        // edge === 'end'
+        let proposedDuration = trimmingClip.initialDurationTicks + deltaTicks;
+        proposedDuration = Math.max(minDuration, proposedDuration);
+
+        // Limit: collision with next clip on same track
+        if (nextClip) {
+          const maxEnd = nextClip.timelineStartTicks;
+          proposedDuration = Math.min(maxEnd - trimmingClip.initialStartTicks, proposedDuration);
+        }
+
+        // Snapping to playhead
+        if (timelineStore.getIsSnappingEnabled()) {
+          const snapThreshold = Math.round(16 / pixelsPerTick);
+          const proposedEnd = trimmingClip.initialStartTicks + proposedDuration;
+          if (Math.abs(proposedEnd - playheadTicks) < snapThreshold) {
+            proposedDuration = Math.max(minDuration, playheadTicks - trimmingClip.initialStartTicks);
+          }
+        }
+
+        setTrimmingClip((prev) =>
+          prev ? { ...prev, currentDurationTicks: proposedDuration } : null
+        );
+      }
+    };
+
+    const handleMouseUp = async () => {
+      if (trimmingClip) {
+        const deltaStart = trimmingClip.currentStartTicks - trimmingClip.initialStartTicks;
+        const deltaDur = trimmingClip.currentDurationTicks - trimmingClip.initialDurationTicks;
+
+        if (trimmingClip.edge === 'start' && deltaStart !== 0) {
+          const cmd = new TrimClipCommand(trimmingClip.clipId, 'start', deltaStart);
+          const success = await editorStore.executeCommand(cmd);
+          if (!success) {
+            const currentProj = editorStore.getProject();
+            const updatedTracks = currentProj.tracks.map((t) => {
+              if (t.id !== trimmingClip.trackId) return t;
+              return {
+                ...t,
+                clips: t.clips.map((c) =>
+                  c.id === trimmingClip.clipId
+                    ? {
+                        ...c,
+                        timelineStartTicks: trimmingClip.currentStartTicks,
+                        durationTicks: trimmingClip.currentDurationTicks,
+                      }
+                    : c
+                ),
+              };
+            });
+            editorStore.getEditorState().setProject({ ...currentProj, tracks: updatedTracks });
+          }
+        } else if (trimmingClip.edge === 'end' && deltaDur !== 0) {
+          const cmd = new TrimClipCommand(trimmingClip.clipId, 'end', deltaDur);
+          const success = await editorStore.executeCommand(cmd);
+          if (!success) {
+            const currentProj = editorStore.getProject();
+            const updatedTracks = currentProj.tracks.map((t) => {
+              if (t.id !== trimmingClip.trackId) return t;
+              return {
+                ...t,
+                clips: t.clips.map((c) =>
+                  c.id === trimmingClip.clipId
+                    ? { ...c, durationTicks: trimmingClip.currentDurationTicks }
+                    : c
+                ),
+              };
+            });
+            editorStore.getEditorState().setProject({ ...currentProj, tracks: updatedTracks });
+          }
+        }
+      }
+      setTrimmingClip(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [trimmingClip, pixelsPerTick, playheadTicks, project]);
+
+  // Live Clip Moving Drag Handler
   useEffect(() => {
     if (!movingClip) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      // Auto-scroll when dragging near horizontal edges
       const container = scrollContainerRef.current;
       if (container) {
         const rect = container.getBoundingClientRect();
@@ -294,7 +453,6 @@ export const TimelineView: React.FC = () => {
         }
       }
 
-      // Horizontal position calculation & snapping
       const deltaX = e.clientX - movingClip.startX;
       const deltaTicks = Math.round(deltaX / pixelsPerTick);
       let proposed = Math.max(0, movingClip.originalTicks + deltaTicks);
@@ -325,7 +483,6 @@ export const TimelineView: React.FC = () => {
         }
       }
 
-      // Vertical track detection (moving across layers)
       let resolvedTargetTrackId = movingClip.targetTrackId;
       const elUnder = document.elementFromPoint(e.clientX, e.clientY);
       const newTrackZone = elUnder?.closest('[data-new-track]') as HTMLElement | null;
@@ -341,7 +498,6 @@ export const TimelineView: React.FC = () => {
       } else if (trackLane) {
         const laneTrackId = trackLane.getAttribute('data-track-id');
         const laneTrackKind = trackLane.getAttribute('data-track-kind');
-        // Only allow dropping on tracks of the same kind (video to video, audio to audio)
         if (laneTrackId && laneTrackKind === movingClip.clipKind) {
           resolvedTargetTrackId = laneTrackId;
         }
@@ -410,6 +566,7 @@ export const TimelineView: React.FC = () => {
     };
   }, [isScrubbing, pixelsPerTick]);
 
+  // ─── Split / Cut Actions ──────────────────────────────────────────────────
   const handleSplitAtPlayhead = async () => {
     const activeClipId = selectedClipIds[0];
     if (!activeClipId) return;
@@ -425,10 +582,260 @@ export const TimelineView: React.FC = () => {
     }
   };
 
+  // Razor Tool Click on Clip to Slice
+  const handleRazorClickOnClip = async (clipId: string, clientX: number, e: React.MouseEvent) => {
+    if (activeTool !== 'razor') return;
+    e.stopPropagation();
+
+    const container = scrollContainerRef.current;
+    const HEADER_WIDTH = 176;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const relativeX = clientX - containerRect.left - HEADER_WIDTH + container.scrollLeft;
+    const sliceTicks = Math.max(0, Math.round(relativeX / pixelsPerTick));
+
+    for (const track of project.tracks) {
+      const clip = track.clips.find((c) => c.id === clipId);
+      if (clip && sliceTicks > clip.timelineStartTicks && sliceTicks < clip.timelineStartTicks + clip.durationTicks) {
+        await editorStore.executeCommand(new SplitClipCommand(clip.id, sliceTicks));
+        setRazorHover(null);
+        break;
+      }
+    }
+  };
+
+  // ─── Delete Actions ───────────────────────────────────────────────────────
   const handleDeleteSelected = async () => {
     const activeClipId = selectedClipIds[0];
     if (!activeClipId) return;
     await editorStore.executeCommand(new DeleteClipCommand(activeClipId));
+  };
+
+  // Ripple Delete (Closes Gap by pulling subsequent clips backward)
+  const handleRippleDelete = async () => {
+    const activeClipId = selectedClipIds[0];
+    if (!activeClipId) return;
+
+    const currentProj = editorStore.getProject();
+    for (const track of currentProj.tracks) {
+      const clip = track.clips.find((c) => c.id === activeClipId);
+      if (clip) {
+        const deletedStart = clip.timelineStartTicks;
+        const deletedDuration = clip.durationTicks;
+
+        const remainingClips = track.clips
+          .filter((c) => c.id !== activeClipId)
+          .map((c) => {
+            if (c.timelineStartTicks > deletedStart) {
+              return {
+                ...c,
+                timelineStartTicks: Math.max(deletedStart, c.timelineStartTicks - deletedDuration),
+              };
+            }
+            return c;
+          });
+
+        editorStore.getEditorState().setProject({
+          ...currentProj,
+          tracks: currentProj.tracks.map((t) => (t.id === track.id ? { ...t, clips: remainingClips } : t)),
+        });
+        timelineStore.clearSelection();
+        break;
+      }
+    }
+  };
+
+  // ─── Freeze Frame (Hold Frame 3s) ─────────────────────────────────────────
+  const handleFreezeFrame = async () => {
+    const currentProj = editorStore.getProject();
+    let targetClip: Clip | undefined;
+    let targetTrack: Track | undefined;
+
+    for (const t of currentProj.tracks) {
+      if (t.kind === 'video') {
+        const hit = t.clips.find(
+          (c) => playheadTicks >= c.timelineStartTicks && playheadTicks < c.timelineStartTicks + c.durationTicks
+        );
+        if (hit) {
+          targetClip = hit;
+          targetTrack = t;
+          break;
+        }
+      }
+    }
+    if (!targetClip || !targetTrack) return;
+
+    const parentAsset = currentProj.assets.find((a) => a.id === targetClip!.assetId);
+    const freezeDurationTicks = Math.round(3.0 * currentProj.timelineTimebase);
+
+    const freezeAssetId = generateId('asset_freeze');
+    const freezeAsset: AssetReference = {
+      id: freezeAssetId,
+      name: `Freeze Frame (${parentAsset?.name || 'Frame'})`,
+      type: 'image',
+      storageMode: 'linked',
+      filePath: parentAsset?.filePath || 'freeze://frame',
+      fileSizeBytes: 0,
+      durationTicks: freezeDurationTicks,
+      thumbnailPath: parentAsset?.thumbnailPath,
+      metadata: {
+        blobUrl: (parentAsset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'],
+        isFreezeFrame: true,
+      },
+    };
+
+    const firstHalfDuration = playheadTicks - targetClip.timelineStartTicks;
+    const secondHalfDuration = targetClip.durationTicks - firstHalfDuration;
+
+    const firstHalf: Clip = {
+      ...targetClip,
+      durationTicks: firstHalfDuration,
+      sourceOutTicks: targetClip.sourceInTicks + firstHalfDuration,
+    };
+
+    const freezeClip: Clip = {
+      id: generateId('clip_freeze'),
+      assetId: freezeAssetId,
+      trackId: targetTrack.id,
+      timelineStartTicks: playheadTicks,
+      durationTicks: freezeDurationTicks,
+      sourceInTicks: 0,
+      sourceOutTicks: freezeDurationTicks,
+      effects: [],
+    };
+
+    const secondHalf: Clip = {
+      id: generateId('clip'),
+      assetId: targetClip.assetId,
+      trackId: targetTrack.id,
+      timelineStartTicks: playheadTicks + freezeDurationTicks,
+      durationTicks: secondHalfDuration,
+      sourceInTicks: targetClip.sourceInTicks + firstHalfDuration,
+      sourceOutTicks: targetClip.sourceOutTicks,
+      audio: targetClip.audio,
+      effects: targetClip.effects,
+    };
+
+    const updatedClips = targetTrack.clips
+      .filter((c) => c.id !== targetClip!.id)
+      .map((c) => {
+        if (c.timelineStartTicks >= playheadTicks) {
+          return { ...c, timelineStartTicks: c.timelineStartTicks + freezeDurationTicks };
+        }
+        return c;
+      });
+
+    const newTrackClips = [
+      ...updatedClips,
+      firstHalf,
+      freezeClip,
+      secondHalf,
+    ].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
+
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      assets: [...currentProj.assets, freezeAsset],
+      tracks: currentProj.tracks.map((t) => (t.id === targetTrack!.id ? { ...t, clips: newTrackClips } : t)),
+    });
+  };
+
+  // ─── Detach Audio (Extract Audio from Video onto Audio Track) ──────────────
+  const handleDetachAudio = async () => {
+    const activeClipId = selectedClipIds[0];
+    if (!activeClipId) return;
+
+    const currentProj = editorStore.getProject();
+    let videoClip: Clip | undefined;
+    let videoTrack: Track | undefined;
+
+    for (const t of currentProj.tracks) {
+      if (t.kind === 'video') {
+        const found = t.clips.find((c) => c.id === activeClipId);
+        if (found) {
+          videoClip = found;
+          videoTrack = t;
+          break;
+        }
+      }
+    }
+    if (!videoClip || !videoTrack) return;
+
+    let targetAudioTrack = currentProj.tracks.find((t) => t.kind === 'audio');
+    let updatedTracks = [...currentProj.tracks];
+
+    if (!targetAudioTrack) {
+      const newAudioTrack: Track = {
+        id: generateId('trk_a'),
+        name: 'A1 Audio',
+        kind: 'audio',
+        order: 1,
+        muted: false,
+        locked: false,
+        hidden: false,
+        clips: [],
+      };
+      updatedTracks.push(newAudioTrack);
+      targetAudioTrack = newAudioTrack;
+    }
+
+    const detachedAudioClip: Clip = {
+      id: generateId('clip_audio'),
+      assetId: videoClip.assetId,
+      trackId: targetAudioTrack.id,
+      timelineStartTicks: videoClip.timelineStartTicks,
+      durationTicks: videoClip.durationTicks,
+      sourceInTicks: videoClip.sourceInTicks,
+      sourceOutTicks: videoClip.sourceOutTicks,
+      audio: { volume: 1.0 },
+      effects: [],
+    };
+
+    const updatedVideoClips = videoTrack.clips.map((c) =>
+      c.id === videoClip!.id ? { ...c, audio: { volume: 0.0 } } : c
+    );
+
+    const finalTracks = updatedTracks.map((t) => {
+      if (t.id === videoTrack!.id) return { ...t, clips: updatedVideoClips };
+      if (t.id === targetAudioTrack!.id) {
+        return {
+          ...t,
+          clips: [...t.clips, detachedAudioClip].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks),
+        };
+      }
+      return t;
+    });
+
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      tracks: finalTracks,
+    });
+  };
+
+  // ─── Speed / Duration Adjuster (0.5x, 1x, 1.5x, 2x) ───────────────────────
+  const handleSetClipSpeed = async (speedMultiplier: number) => {
+    setShowSpeedMenu(false);
+    const activeClipId = selectedClipIds[0];
+    if (!activeClipId) return;
+
+    const currentProj = editorStore.getProject();
+    for (const track of currentProj.tracks) {
+      const clip = track.clips.find((c) => c.id === activeClipId);
+      if (clip) {
+        const newDurationTicks = Math.max(
+          Math.round(currentProj.timelineTimebase * 0.2),
+          Math.round(clip.durationTicks / speedMultiplier)
+        );
+        const updatedClips = track.clips.map((c) =>
+          c.id === clip.id ? { ...c, durationTicks: newDurationTicks } : c
+        );
+        editorStore.getEditorState().setProject({
+          ...currentProj,
+          tracks: currentProj.tracks.map((t) => (t.id === track.id ? { ...t, clips: updatedClips } : t)),
+        });
+        break;
+      }
+    }
   };
 
   const handleToggleMute = async (trackId: string, currentMuted: boolean) => {
@@ -526,7 +933,6 @@ export const TimelineView: React.FC = () => {
     });
   };
 
-  // Reusable payload parser and insertion into target track
   const insertPayloadOntoTrack = async (
     trackId: string,
     dropTicks: number,
@@ -556,7 +962,6 @@ export const TimelineView: React.FC = () => {
       }
     }
 
-    // Direct desktop file drag & drop from Explorer
     if (dataTransfer.files && dataTransfer.files.length > 0) {
       const file = dataTransfer.files[0];
       const blobUrl = URL.createObjectURL(file);
@@ -580,7 +985,6 @@ export const TimelineView: React.FC = () => {
       rawAsset = JSON.stringify(newAsset);
     }
 
-    // Media & Photos Drop
     if (rawAsset) {
       try {
         const asset: AssetReference = JSON.parse(rawAsset);
@@ -603,7 +1007,6 @@ export const TimelineView: React.FC = () => {
       }
     }
 
-    // Titles & Text Drop
     if (rawTitle) {
       try {
         const titlePreset = JSON.parse(rawTitle);
@@ -642,7 +1045,6 @@ export const TimelineView: React.FC = () => {
       }
     }
 
-    // Audio & Music Drop
     if (rawAudio) {
       try {
         const audioSample = JSON.parse(rawAudio);
@@ -682,7 +1084,6 @@ export const TimelineView: React.FC = () => {
       }
     }
 
-    // Transition Drop on Track Seam
     if (rawTrans) {
       try {
         const transDef = JSON.parse(rawTrans);
@@ -713,7 +1114,6 @@ export const TimelineView: React.FC = () => {
     }
   };
 
-  // Drop on Existing Track Lane
   const handleTrackDrop = async (trackId: string, e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -734,7 +1134,6 @@ export const TimelineView: React.FC = () => {
     await insertPayloadOntoTrack(trackId, dropTicks, e.dataTransfer);
   };
 
-  // Drop on "+ New Layer" Drop Zones (Auto-Adds New Track & Drops Clip)
   const handleDropOnNewTrack = async (kind: 'video' | 'audio', e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -760,7 +1159,6 @@ export const TimelineView: React.FC = () => {
     await insertPayloadOntoTrack(newTrackId, dropTicks, e.dataTransfer);
   };
 
-  // Drop transition on exact cut notch
   const handleDropTransitionOnCut = async (
     outgoingClipId: string,
     incomingClipId: string,
@@ -797,7 +1195,6 @@ export const TimelineView: React.FC = () => {
     await handleApplyTransitionBetween(outgoingClipId, incomingClipId, transType, durationSec);
   };
 
-  // Drop effect directly onto a clip
   const handleDropEffectOnClip = async (clipId: string, e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -834,16 +1231,41 @@ export const TimelineView: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col bg-[var(--kuro-timeline-bg)] border-t border-[var(--kuro-border-subtle)] select-none overflow-hidden transition-colors">
-      {/* Timeline Controls Toolbar */}
-      <div className="h-8 px-3 bg-[var(--kuro-bg-panel)] border-b border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs z-10 shrink-0">
-        <div className="flex items-center gap-1.5">
-          <div className="flex items-center gap-1 font-semibold text-[var(--kuro-text-primary)]">
-            <Clock className="w-3.5 h-3.5 text-[var(--kuro-text-muted)]" />
-            <span className="text-[11px] uppercase tracking-wider">Timeline</span>
+      {/* ─── Comprehensive Professional NLE Toolbar ─── */}
+      <div className="h-9 px-3 bg-[var(--kuro-bg-panel)] border-b border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs z-20 shrink-0">
+        <div className="flex items-center gap-1">
+          {/* Tool Selector: Selection (V) vs Razor (C) */}
+          <div className="flex items-center bg-[var(--kuro-bg-surface)] p-0.5 rounded border border-[var(--kuro-border-subtle)] gap-0.5 mr-1">
+            <button
+              onClick={() => timelineStore.setActiveTool('select')}
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition ${
+                activeTool === 'select'
+                  ? 'bg-[var(--kuro-text-primary)] text-[var(--kuro-bg-canvas)] shadow-xs'
+                  : 'text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)]'
+              }`}
+              title="Selection Tool (V) - Select and drag clips"
+            >
+              <MousePointer className="w-3 h-3" />
+              <span>Select (V)</span>
+            </button>
+
+            <button
+              onClick={() => timelineStore.setActiveTool('razor')}
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition ${
+                activeTool === 'razor'
+                  ? 'bg-[var(--kuro-text-primary)] text-[var(--kuro-bg-canvas)] shadow-xs'
+                  : 'text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)]'
+              }`}
+              title="Razor / Blade Tool (C) - Click on any clip to slice"
+            >
+              <Scissors className="w-3 h-3" />
+              <span>Razor (C)</span>
+            </button>
           </div>
 
-          <div className="h-3 w-px bg-[var(--kuro-border-base)] mx-1" />
+          <div className="h-3.5 w-px bg-[var(--kuro-border-base)] mx-1" />
 
+          {/* Split at Playhead */}
           <button
             onClick={handleSplitAtPlayhead}
             disabled={selectedClipIds.length === 0}
@@ -854,24 +1276,86 @@ export const TimelineView: React.FC = () => {
             <span>Split</span>
           </button>
 
+          {/* Ripple Delete (Closes Gap) */}
+          <button
+            onClick={handleRippleDelete}
+            disabled={selectedClipIds.length === 0}
+            className="kuro-btn kuro-btn-secondary px-2 py-0.5 text-[11px] font-medium flex items-center gap-1 disabled:opacity-30"
+            title="Ripple Delete (Shift+Delete) - Remove clip & close gap"
+          >
+            <Trash2 className="w-3 h-3" />
+            <span>Ripple Del</span>
+          </button>
+
+          {/* Standard Delete */}
           <button
             onClick={handleDeleteSelected}
             disabled={selectedClipIds.length === 0}
             className="kuro-btn kuro-btn-secondary px-2 py-0.5 text-[11px] font-medium flex items-center gap-1 disabled:opacity-30"
-            title="Delete Selected Clip (Delete)"
+            title="Delete Selected Clip (Delete) - Leaves gap"
           >
-            <Trash2 className="w-3 h-3" />
+            <Trash2 className="w-3 h-3 opacity-60" />
             <span>Delete</span>
           </button>
+
+          <div className="h-3.5 w-px bg-[var(--kuro-border-base)] mx-1" />
+
+          {/* Detach Audio (Extract Audio from Video) */}
+          <button
+            onClick={handleDetachAudio}
+            disabled={!selectedClip || selectedClip.track.kind !== 'video'}
+            className="kuro-btn kuro-btn-secondary px-2 py-0.5 text-[11px] font-medium flex items-center gap-1 disabled:opacity-30"
+            title="Detach Audio - Extract audio into a separate audio track"
+          >
+            <Unlink className="w-3 h-3" />
+            <span>Detach Audio</span>
+          </button>
+
+          {/* Freeze Frame (Hold Frame 3s) */}
+          <button
+            onClick={handleFreezeFrame}
+            className="kuro-btn kuro-btn-secondary px-2 py-0.5 text-[11px] font-medium flex items-center gap-1"
+            title="Freeze Frame - Insert 3s still frame at playhead"
+          >
+            <Snowflake className="w-3 h-3" />
+            <span>Freeze</span>
+          </button>
+
+          {/* Speed / Duration Quick-Setter */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+              disabled={selectedClipIds.length === 0}
+              className="kuro-btn kuro-btn-secondary px-2 py-0.5 text-[11px] font-medium flex items-center gap-1 disabled:opacity-30"
+              title="Adjust Clip Speed / Duration"
+            >
+              <Gauge className="w-3 h-3" />
+              <span>Speed</span>
+            </button>
+
+            {showSpeedMenu && selectedClip && (
+              <div className="absolute top-7 left-0 bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-base)] rounded shadow-2xl p-1 z-50 flex flex-col gap-0.5 w-24">
+                {[0.5, 1.0, 1.5, 2.0].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => handleSetClipSpeed(s)}
+                    className="px-2 py-1 text-left text-[11px] rounded hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-primary)] font-mono"
+                  >
+                    {s}x {s === 0.5 ? 'Slow' : s === 1.0 ? 'Normal' : 'Fast'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Zoom Slider & Snapping & Collapse */}
+        {/* Snapping, Zoom & Collapse Toolbar Section */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => timelineStore.toggleSnapping()}
             className={`px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition ${
               timelineStore.getIsSnappingEnabled()
-                ? 'bg-[var(--kuro-text-primary)] text-[var(--kuro-bg-canvas)]'
+                ? 'bg-[var(--kuro-text-primary)] text-[var(--kuro-bg-canvas)] font-bold'
                 : 'text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)]'
             }`}
             title="Toggle Snapping (S)"
@@ -921,11 +1405,12 @@ export const TimelineView: React.FC = () => {
       {/* Timeline Scroll Area */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-x-auto overflow-y-auto flex relative select-none kuro-timeline-scroll"
+        className={`flex-1 overflow-x-auto overflow-y-auto flex relative select-none kuro-timeline-scroll ${
+          activeTool === 'razor' ? 'cursor-crosshair' : ''
+        }`}
       >
         {/* Track Headers (Left sticky sidebar) */}
         <div className="w-44 bg-[var(--kuro-bg-panel)] border-r border-[var(--kuro-border-subtle)] shrink-0 sticky left-0 z-40 shadow-sm flex flex-col">
-          {/* Multi-Layer Controls Header */}
           <div className="h-6 border-b border-[var(--kuro-border-subtle)] bg-[var(--kuro-bg-canvas)] px-2 flex items-center justify-between text-[9px] text-[var(--kuro-text-muted)] font-mono uppercase tracking-wider shrink-0">
             <span>LAYERS ({project.tracks.length})</span>
             <div className="flex items-center gap-1">
@@ -1144,8 +1629,6 @@ export const TimelineView: React.FC = () => {
             const isMainVideo = track.id === mainVideoTrack?.id;
             const isMainAudio = track.id === mainAudioTrack?.id;
             const isOverlay = track.kind === 'video' && !isMainVideo;
-
-            // Is the user actively moving a clip over THIS track?
             const isClipTargetingThisTrack = movingClip?.targetTrackId === track.id;
 
             return (
@@ -1192,18 +1675,27 @@ export const TimelineView: React.FC = () => {
                 {/* Clips Rendered in Track */}
                 {sortedClips.map((clip) => {
                   const isBeingMoved = movingClip?.clipId === clip.id;
-                  // If clip is being moved to another track, hide it here or render ghost
+                  const isBeingTrimmed = trimmingClip?.clipId === clip.id;
                   const isTargetingDifferentTrack = isBeingMoved && movingClip.targetTrackId !== track.id;
 
-                  const displayTicks = isBeingMoved ? movingClip.currentTicks : clip.timelineStartTicks;
-                  const clipLeft = displayTicks * pixelsPerTick;
-                  const clipWidth = Math.max(36, clip.durationTicks * pixelsPerTick);
+                  // Compute active display coordinates for moving or trimming
+                  let displayStartTicks = clip.timelineStartTicks;
+                  let displayDurationTicks = clip.durationTicks;
+
+                  if (isBeingMoved) {
+                    displayStartTicks = movingClip.currentTicks;
+                  } else if (isBeingTrimmed) {
+                    displayStartTicks = trimmingClip.currentStartTicks;
+                    displayDurationTicks = trimmingClip.currentDurationTicks;
+                  }
+
+                  const clipLeft = displayStartTicks * pixelsPerTick;
+                  const clipWidth = Math.max(36, displayDurationTicks * pixelsPerTick);
                   const isSelected = selectedClipIds.includes(clip.id);
                   const isClipOver = dragOverClipId === clip.id;
                   const asset = project.assets.find((a) => a.id === clip.assetId);
 
                   if (isTargetingDifferentTrack) {
-                    // Render ghost at original position
                     const origLeft = clip.timelineStartTicks * pixelsPerTick;
                     return (
                       <div
@@ -1211,7 +1703,7 @@ export const TimelineView: React.FC = () => {
                         className="absolute top-1 bottom-1 rounded border border-dashed border-white/40 bg-white/5 text-[10px] flex items-center justify-center text-white/50 font-mono pointer-events-none"
                         style={{ left: `${origLeft}px`, width: `${clipWidth}px` }}
                       >
-                        Moving to {movingClip.targetTrackId === 'new_video' ? 'New Video' : movingClip.targetTrackId === 'new_audio' ? 'New Audio' : 'Layer'}
+                        Moving to Layer
                       </div>
                     );
                   }
@@ -1220,6 +1712,7 @@ export const TimelineView: React.FC = () => {
                     <div
                       key={clip.id}
                       onMouseDown={(e) => {
+                        if (activeTool === 'razor') return;
                         e.stopPropagation();
                         timelineStore.selectClip(clip.id);
                         setMovingClip({
@@ -1234,6 +1727,26 @@ export const TimelineView: React.FC = () => {
                           durationTicks: clip.durationTicks,
                         });
                       }}
+                      onClick={(e) => {
+                        if (activeTool === 'razor') {
+                          handleRazorClickOnClip(clip.id, e.clientX, e);
+                        }
+                      }}
+                      onMouseMove={(e) => {
+                        if (activeTool === 'razor') {
+                          const container = scrollContainerRef.current;
+                          const HEADER_WIDTH = 176;
+                          if (container) {
+                            const rect = container.getBoundingClientRect();
+                            const relX = e.clientX - rect.left - HEADER_WIDTH + container.scrollLeft;
+                            const ticks = Math.max(0, Math.round(relX / pixelsPerTick));
+                            setRazorHover({ clipId: clip.id, ticks });
+                          }
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        if (activeTool === 'razor') setRazorHover(null);
+                      }}
                       onDragOver={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -1242,21 +1755,97 @@ export const TimelineView: React.FC = () => {
                       }}
                       onDragLeave={() => setDragOverClipId(null)}
                       onDrop={(e) => handleDropEffectOnClip(clip.id, e)}
-                      className={`absolute top-1 bottom-1 rounded border text-xs font-medium transition-all select-none flex flex-col justify-between overflow-hidden shadow-sm z-10 cursor-grab active:cursor-grabbing ${
+                      className={`absolute top-1 bottom-1 rounded border text-xs font-medium transition-all select-none flex flex-col justify-between overflow-hidden shadow-sm z-10 ${
+                        activeTool === 'razor'
+                          ? 'cursor-crosshair'
+                          : 'cursor-grab active:cursor-grabbing'
+                      } ${
                         track.kind === 'video'
                           ? 'bg-[var(--kuro-track-video)] text-[var(--kuro-text-primary)] border-[var(--kuro-border-strong)]'
                           : 'bg-[var(--kuro-track-audio)] text-[var(--kuro-text-secondary)] border-[var(--kuro-border-base)]'
                       } ${isSelected ? 'ring-2 ring-white border-white brightness-125' : 'hover:brightness-110'} ${
-                        isBeingMoved ? 'opacity-95 ring-2 ring-white scale-[1.02] z-40 shadow-2xl brightness-125' : ''
+                        isBeingMoved || isBeingTrimmed
+                          ? 'opacity-95 ring-2 ring-white scale-[1.01] z-40 shadow-2xl brightness-125'
+                          : ''
                       } ${isClipOver ? 'ring-2 ring-white border-white scale-[1.01]' : ''}`}
                       style={{ left: `${clipLeft}px`, width: `${clipWidth}px` }}
                       title={
-                        isBeingMoved
-                          ? `Moving to ${(displayTicks / project.timelineTimebase).toFixed(2)}s`
-                          : `${asset?.name ?? clip.id} (Click & drag horizontally for time, vertically for layer)`
+                        activeTool === 'razor'
+                          ? 'Click to cut clip at cursor'
+                          : `${asset?.name ?? clip.id} (Drag edges to extend/compress, drag center to move)`
                       }
                     >
-                      {/* Background real thumbnail if video */}
+                      {/* ── Left Edge Interactive Trim Handle (Trim In) ── */}
+                      {activeTool === 'select' && (
+                        <div
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            timelineStore.selectClip(clip.id);
+                            setTrimmingClip({
+                              clipId: clip.id,
+                              trackId: track.id,
+                              edge: 'start',
+                              initialStartTicks: clip.timelineStartTicks,
+                              initialDurationTicks: clip.durationTicks,
+                              currentStartTicks: clip.timelineStartTicks,
+                              currentDurationTicks: clip.durationTicks,
+                              startX: e.clientX,
+                            });
+                          }}
+                          className="absolute left-0 top-0 bottom-0 w-3 hover:w-3.5 z-30 cursor-ew-resize group/left flex items-center justify-center transition-all bg-transparent hover:bg-white/40"
+                          title="Drag to extend or compress start (Trim In)"
+                        >
+                          <div className="w-1 h-3 rounded-full bg-white/60 group-hover/left:bg-white shadow-sm" />
+                        </div>
+                      )}
+
+                      {/* ── Right Edge Interactive Trim Handle (Trim Out) ── */}
+                      {activeTool === 'select' && (
+                        <div
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            timelineStore.selectClip(clip.id);
+                            setTrimmingClip({
+                              clipId: clip.id,
+                              trackId: track.id,
+                              edge: 'end',
+                              initialStartTicks: clip.timelineStartTicks,
+                              initialDurationTicks: clip.durationTicks,
+                              currentStartTicks: clip.timelineStartTicks,
+                              currentDurationTicks: clip.durationTicks,
+                              startX: e.clientX,
+                            });
+                          }}
+                          className="absolute right-0 top-0 bottom-0 w-3 hover:w-3.5 z-30 cursor-ew-resize group/right flex items-center justify-center transition-all bg-transparent hover:bg-white/40"
+                          title="Drag to extend or compress end (Trim Out)"
+                        >
+                          <div className="w-1 h-3 rounded-full bg-white/60 group-hover/right:bg-white shadow-sm" />
+                        </div>
+                      )}
+
+                      {/* Live Trimming Tooltip Badge */}
+                      {isBeingTrimmed && (
+                        <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-white text-black font-mono font-bold text-[9px] px-2 py-0.5 rounded shadow-2xl z-50 whitespace-nowrap">
+                          {trimmingClip.edge === 'start' ? 'Trim In: ' : 'Trim Out: '}
+                          {(displayDurationTicks / project.timelineTimebase).toFixed(2)}s
+                        </div>
+                      )}
+
+                      {/* Razor Tool Hover Cut Line & Badge */}
+                      {activeTool === 'razor' && razorHover?.clipId === clip.id && (
+                        <div
+                          className="absolute top-0 bottom-0 w-0.5 bg-red-400 shadow-[0_0_8px_red] z-50 pointer-events-none"
+                          style={{
+                            left: `${(razorHover.ticks - displayStartTicks) * pixelsPerTick}px`,
+                          }}
+                        >
+                          <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-red-500 text-white font-bold text-[8px] px-1 rounded shadow whitespace-nowrap">
+                            ✂ Cut
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Background Thumbnail if video */}
                       {asset?.thumbnailPath && (
                         <div
                           className="absolute inset-0 bg-cover bg-center opacity-25 pointer-events-none filter grayscale"
@@ -1264,7 +1853,7 @@ export const TimelineView: React.FC = () => {
                         />
                       )}
 
-                      <div className="relative z-10 px-2 py-0.5 flex items-center justify-between text-[11px] truncate font-medium bg-black/60">
+                      <div className="relative z-10 px-2 py-0.5 flex items-center justify-between text-[11px] truncate font-medium bg-black/60 pointer-events-none">
                         <div className="flex items-center gap-1 truncate">
                           <MoveHorizontal className="w-2.5 h-2.5 opacity-60 shrink-0" />
                           <span className="truncate font-semibold">{asset?.name ?? clip.id}</span>
@@ -1277,14 +1866,12 @@ export const TimelineView: React.FC = () => {
                             </span>
                           )}
                           <span className="text-[10px] opacity-75 font-mono">
-                            {isBeingMoved
-                              ? `${(displayTicks / project.timelineTimebase).toFixed(1)}s`
-                              : `${(clip.durationTicks / project.timelineTimebase).toFixed(1)}s`}
+                            {(displayDurationTicks / project.timelineTimebase).toFixed(1)}s
                           </span>
                         </div>
                       </div>
 
-                      {/* Monochrome Rhythm Bars */}
+                      {/* Rhythm / Waveform Bars */}
                       <div className="relative z-10 h-2 px-2 flex items-end gap-0.5 opacity-35 pointer-events-none">
                         {Array.from({ length: Math.min(30, Math.floor(clipWidth / 8)) }).map((_, idx) => (
                           <div
@@ -1298,7 +1885,7 @@ export const TimelineView: React.FC = () => {
                   );
                 })}
 
-                {/* If clip from another track is currently hovering over THIS track, render its preview here! */}
+                {/* Moving Clip Target Preview on this track */}
                 {movingClip &&
                   movingClip.targetTrackId === track.id &&
                   movingClip.originalTrackId !== track.id && (
@@ -1325,7 +1912,7 @@ export const TimelineView: React.FC = () => {
                     </div>
                   )}
 
-                {/* Transition Cut Seams & Drop Slots between Adjacent Clips */}
+                {/* Transition Cut Seams & Drop Slots */}
                 {sortedClips.map((clipA, i) => {
                   const clipB = sortedClips[i + 1];
                   if (!clipB) return null;

@@ -21,6 +21,27 @@ export const App: React.FC = () => {
         return;
       }
 
+      // V: Selection Tool
+      if (e.code === 'KeyV' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        timelineStore.setActiveTool('select');
+        return;
+      }
+
+      // C: Razor / Blade Tool
+      if (e.code === 'KeyC' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        timelineStore.setActiveTool('razor');
+        return;
+      }
+
+      // S: Toggle Snapping
+      if (e.code === 'KeyS' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        timelineStore.toggleSnapping();
+        return;
+      }
+
       // Ctrl + Space: Toggle AI Drawer
       if ((e.ctrlKey || e.metaKey) && e.code === 'Space') {
         e.preventDefault();
@@ -76,7 +97,45 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Delete or Backspace: Delete selected clip
+      // Ripple Delete: Shift + Delete or Shift + Backspace
+      if (e.shiftKey && (e.code === 'Delete' || e.code === 'Backspace')) {
+        e.preventDefault();
+        const selectedClipIds = timelineStore.getSelectedClipIds();
+        const activeClipId = selectedClipIds[0];
+        if (activeClipId) {
+          const currentProj = editorStore.getProject();
+          for (const track of currentProj.tracks) {
+            const clip = track.clips.find((c) => c.id === activeClipId);
+            if (clip) {
+              const deletedStart = clip.timelineStartTicks;
+              const deletedDur = clip.durationTicks;
+              const remainingClips = track.clips
+                .filter((c) => c.id !== activeClipId)
+                .map((c) => {
+                  if (c.timelineStartTicks > deletedStart) {
+                    return {
+                      ...c,
+                      timelineStartTicks: Math.max(deletedStart, c.timelineStartTicks - deletedDur),
+                    };
+                  }
+                  return c;
+                });
+              const updatedTracks = currentProj.tracks.map((t) =>
+                t.id === track.id ? { ...t, clips: remainingClips } : t
+              );
+              editorStore.getEditorState().setProject({
+                ...currentProj,
+                tracks: updatedTracks,
+              });
+              timelineStore.clearSelection();
+              break;
+            }
+          }
+        }
+        return;
+      }
+
+      // Standard Delete or Backspace: Delete selected clip (leaves gap)
       if (e.code === 'Delete' || e.code === 'Backspace') {
         e.preventDefault();
         const selectedClipIds = timelineStore.getSelectedClipIds();
@@ -86,6 +145,7 @@ export const App: React.FC = () => {
         }
         return;
       }
+
       // Home: Jump to start
       if (e.code === 'Home') {
         e.preventDefault();
