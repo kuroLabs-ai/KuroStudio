@@ -447,16 +447,13 @@ export const PreviewMonitor: React.FC = () => {
             return (
               <video
                 key={state.track.id}
+                data-track-id={state.track.id}
                 ref={(el) => {
                   if (el) videoRefs.current.set(state.track.id, el);
                   else videoRefs.current.delete(state.track.id);
                 }}
                 playsInline
-                className={`pointer-events-none absolute ${
-                  state.isMainTrack
-                    ? 'inset-0 w-full h-full object-contain'
-                    : 'inset-4 max-w-[80%] max-h-[80%] m-auto object-contain shadow-2xl border border-white/20 rounded'
-                }`}
+                className="pointer-events-none absolute inset-0 w-full h-full object-contain"
                 style={{ zIndex, visibility: isVisible ? 'visible' : 'hidden' }}
               />
             );
@@ -466,18 +463,14 @@ export const PreviewMonitor: React.FC = () => {
           {activeVisualLayers.map((layer) => {
             const zIndex = layer.layerIndex * 10 + 1;
 
-            // 2. Photo / Image Layer (V1 Photo or V2 Overlay Photo)
+            // 2. Photo / Image Layer (V1 Photo or V2 Overlay Photo - Same dimensions across all layers)
             if (layer.isImage && layer.blobUrl) {
               return (
                 <img
                   key={layer.clip.id}
                   src={layer.blobUrl}
                   alt={layer.asset?.name || 'Image'}
-                  className={`pointer-events-none absolute select-none ${
-                    layer.isMainTrack
-                      ? 'inset-0 w-full h-full object-contain'
-                      : 'inset-6 max-w-[75%] max-h-[75%] m-auto object-contain drop-shadow-[0_20px_25px_rgba(0,0,0,0.8)] border border-white/30 rounded shadow-2xl'
-                  }`}
+                  className="pointer-events-none absolute select-none inset-0 w-full h-full object-contain"
                   style={{ zIndex }}
                 />
               );
