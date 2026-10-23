@@ -1,128 +1,59 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Clip, EffectInstance } from '@kuro/project-format';
 import { generateId } from '@kuro/shared';
 import {
-  Sun,
-  Contrast,
-  Palette,
-  Thermometer,
-  Sparkles,
-  RotateCcw,
-  Eye,
   Sliders,
-  Flame,
-  Droplets,
-  Layers,
-  Wand2,
+  TrendingUp,
+  Sun,
   Film,
-  Camera,
-  Compass,
+  Layers,
+  Activity,
+  Sparkles,
+  Eye,
+  EyeOff,
+  Copy,
+  ClipboardPaste,
+  RotateCcw,
+  Check
 } from 'lucide-react';
+
+import { ColorWheels, WheelValue } from './color/ColorWheels';
+import { ColorCurves, CurvesState } from './color/ColorCurves';
+import { NodeGraphTree, NodeItem } from './color/NodeGraphTree';
+import { VideoScopes } from './color/VideoScopes';
+import { ColorBasicTab } from './color/ColorBasicTab';
+import { ColorLUTsTab, ColorPreset } from './color/ColorLUTsTab';
+import { ColorFilmFXTab } from './color/ColorFilmFXTab';
 
 interface ColorTabProps {
   clip: Clip;
   onUpdateEffects: (effects: EffectInstance[]) => void;
 }
 
-interface ColorPreset {
-  id: string;
-  name: string;
-  category: 'Cinematic' | 'Mood' | 'Vintage' | 'Creative';
-  desc: string;
-  previewBg: string;
-  effects: Partial<Record<string, number>>;
+type ColorSubTab = 'wheels' | 'curves' | 'basic' | 'luts' | 'nodes' | 'scopes' | 'fx';
+
+// Global clipboard for copying/pasting color grades across clips
+declare global {
+  interface Window {
+    __kuroColorClipboard?: EffectInstance[];
+  }
 }
 
-const COLOR_PRESETS: ColorPreset[] = [
-  {
-    id: 'teal-orange',
-    name: 'Teal & Orange',
-    category: 'Cinematic',
-    desc: 'Blockbuster Hollywood contrast with punchy warm skin tones',
-    previewBg: 'linear-gradient(135deg, #0f766e 0%, #ea580c 100%)',
-    effects: { temperature: 25, tint: -10, contrast: 1.2, saturation: 1.15, vignette: 20 },
-  },
-  {
-    id: 'cyberpunk',
-    name: 'Cyberpunk Neon',
-    category: 'Cinematic',
-    desc: 'Deep blues and vivid fuchsias for night / sci-fi scenes',
-    previewBg: 'linear-gradient(135deg, #06b6d4 0%, #ec4899 100%)',
-    effects: { temperature: -40, tint: 35, contrast: 1.35, saturation: 1.4, vignette: 30 },
-  },
-  {
-    id: 'warm-golden',
-    name: 'Golden Hour',
-    category: 'Mood',
-    desc: 'Sunset warm glow with soft highlights',
-    previewBg: 'linear-gradient(135deg, #f59e0b 0%, #dc2626 100%)',
-    effects: { temperature: 45, tint: 5, contrast: 1.1, saturation: 1.2, brightness: 1.05 },
-  },
-  {
-    id: 'nordic-cold',
-    name: 'Nordic Noir',
-    category: 'Mood',
-    desc: 'Desaturated, cold, moody atmosphere for drama',
-    previewBg: 'linear-gradient(135deg, #334155 0%, #0284c7 100%)',
-    effects: { temperature: -45, tint: -5, contrast: 1.25, saturation: 0.65, vignette: 25 },
-  },
-  {
-    id: 'super-8',
-    name: 'Super 8 Film',
-    category: 'Vintage',
-    desc: 'Warm analog 70s look with warm shadows & vignette',
-    previewBg: 'linear-gradient(135deg, #78350f 0%, #ca8a04 100%)',
-    effects: { temperature: 30, saturation: 0.85, contrast: 1.2, sepia: 25, vignette: 40 },
-  },
-  {
-    id: 'bnw-noir',
-    name: 'Silver Screen B&W',
-    category: 'Vintage',
-    desc: 'High contrast monochrome cinema grade',
-    previewBg: 'linear-gradient(135deg, #18181b 0%, #71717a 100%)',
-    effects: { saturation: 0.0, contrast: 1.45, brightness: 1.02, vignette: 30 },
-  },
-  {
-    id: 'punchy-pop',
-    name: 'Vibrant Pop',
-    category: 'Creative',
-    desc: 'Saturated, bright, social-media ready commercial look',
-    previewBg: 'linear-gradient(135deg, #10b981 0%, #6366f1 100%)',
-    effects: { saturation: 1.35, contrast: 1.18, brightness: 1.08, temperature: 5 },
-  },
-  {
-    id: 'matte-fade',
-    name: 'Faded Film',
-    category: 'Creative',
-    desc: 'Lifted shadows and soft pastel tones for indie cinema',
-    previewBg: 'linear-gradient(135deg, #475569 0%, #cbd5e1 100%)',
-    effects: { contrast: 0.85, brightness: 1.1, saturation: 0.9, tint: 5, temperature: 10 },
-  },
-];
-
 export const ColorTab: React.FC<ColorTabProps> = ({ clip, onUpdateEffects }) => {
-  const [activeCategory, setActiveCategory] = useState<string>('All');
+  const [activeSubTab, setActiveSubTab] = useState<ColorSubTab>('wheels');
+  const [selectedNodeId, setSelectedNodeId] = useState<string>('node-01');
+  const [isBypassed, setIsBypassed] = useState<boolean>(false);
+  const [copiedNotification, setCopiedNotification] = useState<boolean>(false);
+  const [pastedNotification, setPastedNotification] = useState<boolean>(false);
 
-  // Read current effect parameter
+  // Helper to read single effect value
   const getParam = (effectType: string, defaultValue: number): number => {
     const found = clip.effects.find((e) => e.effectType === effectType);
     if (!found || found.parameters.value === undefined) return defaultValue;
     return Number(found.parameters.value);
   };
 
-  const brightness = getParam('brightness', 1.0);
-  const contrast = getParam('contrast', 1.0);
-  const saturation = getParam('saturation', 1.0);
-  const exposure = getParam('exposure', 0);
-  const temperature = getParam('temperature', 0);
-  const tint = getParam('tint', 0);
-  const hue = getParam('hue', 0);
-  const blur = getParam('blur', 0);
-  const vignette = getParam('vignette', 0);
-  const sepia = getParam('sepia', 0);
-  const invert = getParam('invert', 0);
-
-  // Set single effect with precision
+  // Helper to set single effect value
   const setEffectValue = (effectType: string, value: number, defaultValue: number) => {
     let updated = [...clip.effects];
     const idx = updated.findIndex((e) => e.effectType === effectType);
@@ -149,485 +80,505 @@ export const ColorTab: React.FC<ColorTabProps> = ({ clip, onUpdateEffects }) => 
     onUpdateEffects(updated);
   };
 
-  // Reset all color effects
-  const resetAll = () => {
-    onUpdateEffects([]);
+  // ─── Color Wheels State ───
+  const getWheelValue = (wheelType: 'lift' | 'gamma' | 'gain' | 'offset'): WheelValue => {
+    const found = clip.effects.find((e) => e.effectType === wheelType);
+    if (!found) return { x: 0, y: 0, hue: 0, sat: 0, luma: 0 };
+    return {
+      x: Number(found.parameters.x ?? 0),
+      y: Number(found.parameters.y ?? 0),
+      hue: Number(found.parameters.hue ?? 0),
+      sat: Number(found.parameters.sat ?? 0),
+      luma: Number(found.parameters.luma ?? 0),
+    };
   };
 
-  // Apply a preset LUT/look
-  const applyPreset = (preset: ColorPreset) => {
+  const updateWheelValue = (wheelType: 'lift' | 'gamma' | 'gain' | 'offset', val: WheelValue) => {
+    let updated = [...clip.effects];
+    const idx = updated.findIndex((e) => e.effectType === wheelType);
+    const isZero =
+      Math.abs(val.x) < 0.001 &&
+      Math.abs(val.y) < 0.001 &&
+      Math.abs(val.luma) < 0.001;
+
+    if (isZero) {
+      if (idx !== -1) updated.splice(idx, 1);
+    } else {
+      if (idx !== -1) {
+        updated[idx] = {
+          ...updated[idx]!,
+          enabled: true,
+          parameters: {
+            x: val.x,
+            y: val.y,
+            hue: val.hue,
+            sat: val.sat,
+            luma: val.luma,
+          },
+        };
+      } else {
+        updated.push({
+          id: generateId(`eff_${wheelType}`),
+          effectType: wheelType,
+          enabled: true,
+          parameters: {
+            x: val.x,
+            y: val.y,
+            hue: val.hue,
+            sat: val.sat,
+            luma: val.luma,
+          },
+        });
+      }
+    }
+    onUpdateEffects(updated);
+  };
+
+  const liftWheel = getWheelValue('lift');
+  const gammaWheel = getWheelValue('gamma');
+  const gainWheel = getWheelValue('gain');
+  const offsetWheel = getWheelValue('offset');
+
+  // ─── Curves State ───
+  const curvesEffect = clip.effects.find((e) => e.effectType === 'curves');
+  const curvesState: CurvesState = useMemo(() => {
+    if (!curvesEffect || !curvesEffect.parameters.data) {
+      return {
+        master: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+        red: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+        green: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+        blue: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+      };
+    }
+    try {
+      return JSON.parse(curvesEffect.parameters.data as string);
+    } catch {
+      return {
+        master: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+        red: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+        green: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+        blue: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+      };
+    }
+  }, [curvesEffect]);
+
+  const updateCurves = (newCurves: CurvesState) => {
+    let updated = [...clip.effects];
+    const idx = updated.findIndex((e) => e.effectType === 'curves');
+    const jsonStr = JSON.stringify(newCurves);
+
+    if (idx !== -1) {
+      updated[idx] = {
+        ...updated[idx]!,
+        enabled: true,
+        parameters: { data: jsonStr },
+      };
+    } else {
+      updated.push({
+        id: generateId('eff_curves'),
+        effectType: 'curves',
+        enabled: true,
+        parameters: { data: jsonStr },
+      });
+    }
+    onUpdateEffects(updated);
+  };
+
+  // ─── Node Graph State ───
+  const nodeGraphEffect = clip.effects.find((e) => e.effectType === 'nodeGraph');
+  const bypassedNodeIds: string[] = useMemo(() => {
+    if (!nodeGraphEffect || !nodeGraphEffect.parameters.bypassed) return [];
+    try {
+      return JSON.parse(nodeGraphEffect.parameters.bypassed as string);
+    } catch {
+      return [];
+    }
+  }, [nodeGraphEffect]);
+
+  const nodes: NodeItem[] = [
+    {
+      id: 'node-01',
+      number: '01',
+      name: 'Primary Wheels',
+      category: 'primaries',
+      enabled: !bypassedNodeIds.includes('node-01'),
+      active: activeSubTab === 'wheels',
+    },
+    {
+      id: 'node-02',
+      number: '02',
+      name: 'RGB Curves',
+      category: 'curves',
+      enabled: !bypassedNodeIds.includes('node-02'),
+      active: activeSubTab === 'curves',
+    },
+    {
+      id: 'node-03',
+      number: '03',
+      name: 'Cinema Look',
+      category: 'lut',
+      enabled: !bypassedNodeIds.includes('node-03'),
+      active: activeSubTab === 'luts',
+    },
+    {
+      id: 'node-04',
+      number: '04',
+      name: 'Film Stylize',
+      category: 'fx',
+      enabled: !bypassedNodeIds.includes('node-04'),
+      active: activeSubTab === 'fx',
+    },
+  ];
+
+  const toggleNodeBypass = (nodeId: string) => {
+    let updatedBypassed = [...bypassedNodeIds];
+    if (updatedBypassed.includes(nodeId)) {
+      updatedBypassed = updatedBypassed.filter((id) => id !== nodeId);
+    } else {
+      updatedBypassed.push(nodeId);
+    }
+
+    let updatedEffects = [...clip.effects];
+    const idx = updatedEffects.findIndex((e) => e.effectType === 'nodeGraph');
+    if (idx !== -1) {
+      updatedEffects[idx] = {
+        ...updatedEffects[idx]!,
+        parameters: { bypassed: JSON.stringify(updatedBypassed) },
+      };
+    } else {
+      updatedEffects.push({
+        id: generateId('eff_nodegraph'),
+        effectType: 'nodeGraph',
+        enabled: true,
+        parameters: { bypassed: JSON.stringify(updatedBypassed) },
+      });
+    }
+    onUpdateEffects(updatedEffects);
+  };
+
+  const handleSelectNode = (nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    if (nodeId === 'node-01') setActiveSubTab('wheels');
+    else if (nodeId === 'node-02') setActiveSubTab('curves');
+    else if (nodeId === 'node-03') setActiveSubTab('luts');
+    else if (nodeId === 'node-04') setActiveSubTab('fx');
+  };
+
+  // ─── Basic Tone & Color Parameters ───
+  const temperature = getParam('temperature', 0);
+  const tint = getParam('tint', 0);
+  const exposure = getParam('exposure', 0);
+  const contrast = getParam('contrast', 1.0);
+  const highlights = getParam('highlights', 0);
+  const shadows = getParam('shadows', 0);
+  const whites = getParam('whites', 0);
+  const blacks = getParam('blacks', 0);
+  const saturation = getParam('saturation', 1.0);
+  const vibrance = getParam('vibrance', 0);
+
+  // ─── Film FX Parameters ───
+  const vignette = getParam('vignette', 0);
+  const grain = getParam('grain', 0);
+  const blur = getParam('blur', 0);
+  const sepia = getParam('sepia', 0);
+  const invert = getParam('invert', 0);
+
+  // ─── Preset Application with Intensity ───
+  const handleApplyPreset = (preset: ColorPreset, intensity: number) => {
+    const ratio = intensity / 100.0;
     const newEffects: EffectInstance[] = [];
+
+    // Retain existing wheels or curves
+    for (const eff of clip.effects) {
+      if (['lift', 'gamma', 'gain', 'offset', 'curves', 'nodeGraph'].includes(eff.effectType)) {
+        newEffects.push(eff);
+      }
+    }
+
+    // Blend preset parameters with ratio
     Object.entries(preset.effects).forEach(([effType, val]) => {
+      let finalVal = val!;
+      if (effType === 'contrast' || effType === 'saturation' || effType === 'brightness') {
+        finalVal = 1.0 + (val! - 1.0) * ratio;
+      } else {
+        finalVal = val! * ratio;
+      }
+
       newEffects.push({
         id: generateId('eff'),
         effectType: effType as any,
         enabled: true,
-        parameters: { value: val! },
+        parameters: { value: finalVal },
       });
     });
+
     onUpdateEffects(newEffects);
   };
 
-  const categories = ['All', 'Cinematic', 'Mood', 'Vintage', 'Creative'];
-  const filteredPresets = activeCategory === 'All' 
-    ? COLOR_PRESETS 
-    : COLOR_PRESETS.filter((p) => p.category === activeCategory);
+  // ─── Before / After Bypass Toggle ───
+  const handleToggleBypass = () => {
+    if (!isBypassed) {
+      // Temporarily disable all effects
+      setIsBypassed(true);
+      const disabled = clip.effects.map((e) => ({ ...e, enabled: false }));
+      onUpdateEffects(disabled);
+    } else {
+      // Re-enable all effects
+      setIsBypassed(false);
+      const enabled = clip.effects.map((e) => ({ ...e, enabled: true }));
+      onUpdateEffects(enabled);
+    }
+  };
+
+  // ─── Copy & Paste Color Grade ───
+  const handleCopyGrade = () => {
+    window.__kuroColorClipboard = JSON.parse(JSON.stringify(clip.effects));
+    setCopiedNotification(true);
+    setTimeout(() => setCopiedNotification(false), 2000);
+  };
+
+  const handlePasteGrade = () => {
+    if (!window.__kuroColorClipboard) return;
+    const pasted = JSON.parse(JSON.stringify(window.__kuroColorClipboard));
+    onUpdateEffects(pasted);
+    setPastedNotification(true);
+    setTimeout(() => setPastedNotification(false), 2000);
+  };
 
   const hasModifications = clip.effects.length > 0;
 
   return (
-    <div className="space-y-4 text-xs select-none pb-6">
-      {/* ─── Top Master Reset & Summary Header ─── */}
-      <div className="flex items-center justify-between p-2.5 rounded-lg bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-subtle)]">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-emerald-400" />
-          <span className="font-semibold text-white tracking-wide text-[11px]">
-            {clip.effects.length === 0 ? 'No Active Grades' : `${clip.effects.length} Active Adjustment${clip.effects.length > 1 ? 's' : ''}`}
-          </span>
-        </div>
-        <button
-          onClick={resetAll}
-          disabled={!hasModifications}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-mono uppercase tracking-wider font-semibold transition cursor-pointer ${
-            hasModifications
-              ? 'bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30'
-              : 'opacity-40 cursor-not-allowed bg-[var(--kuro-bg-panel)] text-[var(--kuro-text-muted)] border border-transparent'
-          }`}
-          title="Reset all color parameters to default"
-        >
-          <RotateCcw className="w-2.5 h-2.5" />
-          Reset All
-        </button>
-      </div>
-
-      {/* ─── 1. Cinematic Color Presets / LUTs ─── */}
-      <div className="bg-[var(--kuro-bg-surface)] p-3 rounded-lg border border-[var(--kuro-border-subtle)] space-y-2.5">
+    <div className="space-y-3.5 text-xs select-none pb-6">
+      {/* ── Top Bar: DaVinci Resolve Master Control Strip ── */}
+      <div className="p-2.5 rounded-lg bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-subtle)] space-y-2">
         <div className="flex items-center justify-between">
-          <span className="font-bold uppercase tracking-wider text-[10px] text-[var(--kuro-text-secondary)] flex items-center gap-1.5">
-            <Film className="w-3.5 h-3.5 text-amber-400" />
-            Cinema Color Presets (LUTs)
-          </span>
-        </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
+            <span className="font-bold text-white tracking-wider text-[11px] uppercase">
+              Resolve Color Suite
+            </span>
+            <span className="text-[9px] bg-white/10 text-white font-mono px-1.5 py-0.2 rounded font-semibold">
+              {clip.effects.length} {clip.effects.length === 1 ? 'GRADE' : 'GRADES'}
+            </span>
+          </div>
 
-        {/* Category Pill Filters */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar">
-          {categories.map((cat) => (
+          {/* Quick Actions Strip */}
+          <div className="flex items-center gap-1.5">
+            {/* Compare / Bypass Toggle */}
             <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition cursor-pointer shrink-0 ${
-                activeCategory === cat
-                  ? 'bg-white text-black font-semibold'
-                  : 'bg-[var(--kuro-bg-panel)] text-[var(--kuro-text-muted)] hover:text-white border border-[var(--kuro-border-subtle)]'
+              onClick={handleToggleBypass}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold transition cursor-pointer ${
+                isBypassed
+                  ? 'bg-amber-500 text-black shadow'
+                  : 'bg-[var(--kuro-bg-panel)] text-[var(--kuro-text-secondary)] hover:text-white border border-[var(--kuro-border-subtle)]'
               }`}
+              title="Bypass Color Grade (Before / After Compare)"
             >
-              {cat}
+              {isBypassed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+              {isBypassed ? 'Bypassed' : 'Compare'}
             </button>
-          ))}
-        </div>
 
-        {/* Preset Cards Grid */}
-        <div className="grid grid-cols-2 gap-2">
-          {filteredPresets.map((preset) => (
+            {/* Copy Grade */}
             <button
-              key={preset.id}
-              onClick={() => applyPreset(preset)}
-              className="group p-2 rounded-lg bg-[var(--kuro-bg-panel)] hover:bg-[var(--kuro-bg-hover)] border border-[var(--kuro-border-subtle)] hover:border-white/30 text-left transition cursor-pointer flex flex-col justify-between gap-2 overflow-hidden relative"
+              onClick={handleCopyGrade}
+              className="p-1 rounded bg-[var(--kuro-bg-panel)] hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-secondary)] hover:text-white border border-[var(--kuro-border-subtle)] transition cursor-pointer"
+              title="Copy Color Grade"
             >
-              <div className="flex items-center gap-2">
-                <div
-                  className="w-5 h-5 rounded-md shadow-sm shrink-0 border border-white/20 group-hover:scale-110 transition-transform"
-                  style={{ background: preset.previewBg }}
-                />
-                <span className="font-semibold text-white text-[11px] truncate">{preset.name}</span>
-              </div>
-              <p className="text-[9px] text-[var(--kuro-text-muted)] line-clamp-2 leading-tight">
-                {preset.desc}
-              </p>
+              {copiedNotification ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
             </button>
-          ))}
+
+            {/* Paste Grade */}
+            <button
+              onClick={handlePasteGrade}
+              disabled={!window.__kuroColorClipboard}
+              className={`p-1 rounded border transition cursor-pointer ${
+                window.__kuroColorClipboard
+                  ? 'bg-[var(--kuro-bg-panel)] hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-secondary)] hover:text-white border-[var(--kuro-border-subtle)]'
+                  : 'opacity-20 cursor-not-allowed bg-[var(--kuro-bg-panel)] text-[var(--kuro-text-muted)] border-transparent'
+              }`}
+              title="Paste Color Grade"
+            >
+              {pastedNotification ? <Check className="w-3 h-3 text-emerald-400" /> : <ClipboardPaste className="w-3 h-3" />}
+            </button>
+
+            {/* Master Reset All */}
+            <button
+              onClick={() => onUpdateEffects([])}
+              disabled={!hasModifications}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold transition cursor-pointer ${
+                hasModifications
+                  ? 'bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30'
+                  : 'opacity-20 cursor-not-allowed bg-[var(--kuro-bg-panel)] text-[var(--kuro-text-muted)] border-transparent'
+              }`}
+              title="Reset all color parameters to default"
+            >
+              <RotateCcw className="w-2.5 h-2.5" />
+              Reset All
+            </button>
+          </div>
+        </div>
+
+        {/* ── Sub-Panel Tabs Bar (Resolve Multi-Panel) ── */}
+        <div className="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar border-t border-[var(--kuro-border-subtle)] pt-1.5">
+          {[
+            { id: 'wheels', label: 'Wheels', icon: Sliders },
+            { id: 'curves', label: 'Curves', icon: TrendingUp },
+            { id: 'basic', label: 'Basic Tone', icon: Sun },
+            { id: 'luts', label: 'LUTs', icon: Film },
+            { id: 'nodes', label: 'Node Tree', icon: Layers },
+            { id: 'scopes', label: 'Scopes', icon: Activity },
+            { id: 'fx', label: 'Film FX', icon: Sparkles },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeSubTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSubTab(tab.id as ColorSubTab)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition cursor-pointer shrink-0 ${
+                  isActive
+                    ? 'bg-white text-black font-bold shadow-sm'
+                    : 'bg-[var(--kuro-bg-panel)] text-[var(--kuro-text-secondary)] hover:text-white border border-[var(--kuro-border-subtle)]'
+                }`}
+              >
+                <Icon className="w-3 h-3" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* ─── 2. Basic Tone & Exposure (Primary Wheels) ─── */}
-      <div className="bg-[var(--kuro-bg-surface)] p-3 rounded-lg border border-[var(--kuro-border-subtle)] space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="font-bold uppercase tracking-wider text-[10px] text-[var(--kuro-text-secondary)] flex items-center gap-1.5">
-            <Sun className="w-3.5 h-3.5 text-yellow-400" />
-            Tone & Exposure
-          </span>
-          <button
-            onClick={() => {
-              setEffectValue('brightness', 1.0, 1.0);
-              setEffectValue('contrast', 1.0, 1.0);
-              setEffectValue('exposure', 0, 0);
-            }}
-            className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white transition flex items-center gap-1 cursor-pointer"
-            title="Reset Tone adjustments"
-          >
-            <RotateCcw className="w-2.5 h-2.5" />
-            Reset Tone
-          </button>
-        </div>
+      {/* ── Sub-Panel Active Content ── */}
+      {activeSubTab === 'wheels' && (
+        <ColorWheels
+          lift={liftWheel}
+          gamma={gammaWheel}
+          gain={gainWheel}
+          offset={offsetWheel}
+          onChangeLift={(val) => updateWheelValue('lift', val)}
+          onChangeGamma={(val) => updateWheelValue('gamma', val)}
+          onChangeGain={(val) => updateWheelValue('gain', val)}
+          onChangeOffset={(val) => updateWheelValue('offset', val)}
+          onResetAllWheels={() => {
+            updateWheelValue('lift', { x: 0, y: 0, hue: 0, sat: 0, luma: 0 });
+            updateWheelValue('gamma', { x: 0, y: 0, hue: 0, sat: 0, luma: 0 });
+            updateWheelValue('gain', { x: 0, y: 0, hue: 0, sat: 0, luma: 0 });
+            updateWheelValue('offset', { x: 0, y: 0, hue: 0, sat: 0, luma: 0 });
+          }}
+        />
+      )}
 
-        {/* Exposure */}
-        <div className="space-y-1">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-[var(--kuro-text-secondary)]">Exposure (EV)</span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-white font-medium">{exposure > 0 ? `+${exposure.toFixed(2)}` : exposure.toFixed(2)} EV</span>
-              {exposure !== 0 && (
-                <button
-                  onClick={() => setEffectValue('exposure', 0, 0)}
-                  className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white"
-                  title="Reset exposure"
-                >
-                  ↺
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="-1.5"
-            max="1.5"
-            step="0.05"
-            value={exposure}
-            onChange={(e) => setEffectValue('exposure', parseFloat(e.target.value), 0)}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
-          />
-        </div>
+      {activeSubTab === 'curves' && (
+        <ColorCurves
+          curves={curvesState}
+          onChangeCurves={updateCurves}
+          onResetCurves={() =>
+            updateCurves({
+              master: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+              red: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+              green: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+              blue: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+            })
+          }
+        />
+      )}
 
-        {/* Brightness */}
-        <div className="space-y-1">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-[var(--kuro-text-secondary)]">Brightness</span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-white font-medium">{Math.round((brightness - 1.0) * 100)}%</span>
-              {Math.abs(brightness - 1.0) > 0.01 && (
-                <button
-                  onClick={() => setEffectValue('brightness', 1.0, 1.0)}
-                  className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white"
-                  title="Reset brightness"
-                >
-                  ↺
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="0.2"
-            max="1.8"
-            step="0.02"
-            value={brightness}
-            onChange={(e) => setEffectValue('brightness', parseFloat(e.target.value), 1.0)}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
-          />
-        </div>
+      {activeSubTab === 'basic' && (
+        <ColorBasicTab
+          temperature={temperature}
+          tint={tint}
+          exposure={exposure}
+          contrast={contrast}
+          highlights={highlights}
+          shadows={shadows}
+          whites={whites}
+          blacks={blacks}
+          saturation={saturation}
+          vibrance={vibrance}
+          onUpdateParam={setEffectValue}
+          onResetBasic={() => {
+            setEffectValue('temperature', 0, 0);
+            setEffectValue('tint', 0, 0);
+            setEffectValue('exposure', 0, 0);
+            setEffectValue('contrast', 1.0, 1.0);
+            setEffectValue('highlights', 0, 0);
+            setEffectValue('shadows', 0, 0);
+            setEffectValue('whites', 0, 0);
+            setEffectValue('blacks', 0, 0);
+            setEffectValue('saturation', 1.0, 1.0);
+            setEffectValue('vibrance', 0, 0);
+          }}
+        />
+      )}
 
-        {/* Contrast */}
-        <div className="space-y-1">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-[var(--kuro-text-secondary)]">Contrast</span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-white font-medium">{Math.round((contrast - 1.0) * 100)}%</span>
-              {Math.abs(contrast - 1.0) > 0.01 && (
-                <button
-                  onClick={() => setEffectValue('contrast', 1.0, 1.0)}
-                  className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white"
-                  title="Reset contrast"
-                >
-                  ↺
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="0.2"
-            max="2.0"
-            step="0.02"
-            value={contrast}
-            onChange={(e) => setEffectValue('contrast', parseFloat(e.target.value), 1.0)}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
-          />
-        </div>
-      </div>
+      {activeSubTab === 'luts' && (
+        <ColorLUTsTab onApplyPreset={handleApplyPreset} />
+      )}
 
-      {/* ─── 3. Color Balance & Vibrance ─── */}
-      <div className="bg-[var(--kuro-bg-surface)] p-3 rounded-lg border border-[var(--kuro-border-subtle)] space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="font-bold uppercase tracking-wider text-[10px] text-[var(--kuro-text-secondary)] flex items-center gap-1.5">
-            <Thermometer className="w-3.5 h-3.5 text-blue-400" />
-            White Balance & Color
-          </span>
-          <button
-            onClick={() => {
-              setEffectValue('temperature', 0, 0);
-              setEffectValue('tint', 0, 0);
-              setEffectValue('saturation', 1.0, 1.0);
-              setEffectValue('hue', 0, 0);
-            }}
-            className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white transition flex items-center gap-1 cursor-pointer"
-            title="Reset color balance adjustments"
-          >
-            <RotateCcw className="w-2.5 h-2.5" />
-            Reset Balance
-          </button>
-        </div>
-
-        {/* Saturation */}
-        <div className="space-y-1">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-[var(--kuro-text-secondary)] flex items-center gap-1">
-              <Palette className="w-3 h-3 text-[var(--kuro-text-muted)]" />
-              Saturation
-            </span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-white font-medium">{Math.round(saturation * 100)}%</span>
-              {Math.abs(saturation - 1.0) > 0.01 && (
-                <button
-                  onClick={() => setEffectValue('saturation', 1.0, 1.0)}
-                  className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white"
-                  title="Reset saturation"
-                >
-                  ↺
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="2.5"
-            step="0.02"
-            value={saturation}
-            onChange={(e) => setEffectValue('saturation', parseFloat(e.target.value), 1.0)}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
-          />
-          <div className="flex justify-between text-[9px] text-[var(--kuro-text-muted)] font-mono">
-            <span>0% (Monochrome)</span>
-            <span>100% (Unity)</span>
-            <span>250% (Punchy)</span>
-          </div>
-        </div>
-
-        {/* Temperature (Cool <-> Warm) */}
-        <div className="space-y-1 pt-1">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-[var(--kuro-text-secondary)]">Temperature</span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-white font-medium">
-                {temperature === 0 ? '0' : temperature > 0 ? `+${temperature} (Warm)` : `${temperature} (Cool)`}
-              </span>
-              {temperature !== 0 && (
-                <button
-                  onClick={() => setEffectValue('temperature', 0, 0)}
-                  className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white"
-                  title="Reset temperature"
-                >
-                  ↺
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="-100"
-            max="100"
-            value={temperature}
-            onChange={(e) => setEffectValue('temperature', parseInt(e.target.value, 10), 0)}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
-          />
-          <div className="flex justify-between text-[9px] font-mono">
-            <span className="text-sky-400">Cool / Blue</span>
-            <span className="text-[var(--kuro-text-muted)]">Neutral</span>
-            <span className="text-amber-400">Warm / Orange</span>
-          </div>
-        </div>
-
-        {/* Tint (Green <-> Magenta) */}
-        <div className="space-y-1 pt-1">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-[var(--kuro-text-secondary)]">Tint</span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-white font-medium">{tint > 0 ? `+${tint}` : tint}</span>
-              {tint !== 0 && (
-                <button
-                  onClick={() => setEffectValue('tint', 0, 0)}
-                  className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white"
-                  title="Reset tint"
-                >
-                  ↺
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="-100"
-            max="100"
-            value={tint}
-            onChange={(e) => setEffectValue('tint', parseInt(e.target.value, 10), 0)}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
-          />
-          <div className="flex justify-between text-[9px] font-mono">
-            <span className="text-emerald-400">Green</span>
-            <span className="text-[var(--kuro-text-muted)]">0</span>
-            <span className="text-fuchsia-400">Magenta</span>
-          </div>
-        </div>
-
-        {/* Hue Rotation */}
-        <div className="space-y-1 pt-1">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-[var(--kuro-text-secondary)] flex items-center gap-1">
-              <Compass className="w-3 h-3 text-[var(--kuro-text-muted)]" />
-              Hue Shift
-            </span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-white font-medium">{hue}°</span>
-              {hue !== 0 && (
-                <button
-                  onClick={() => setEffectValue('hue', 0, 0)}
-                  className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white"
-                  title="Reset hue shift"
-                >
-                  ↺
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="-180"
-            max="180"
-            value={hue}
-            onChange={(e) => setEffectValue('hue', parseInt(e.target.value, 10), 0)}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
-          />
-        </div>
-      </div>
-
-      {/* ─── 4. Lens, Stylize & Vignette ─── */}
-      <div className="bg-[var(--kuro-bg-surface)] p-3 rounded-lg border border-[var(--kuro-border-subtle)] space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="font-bold uppercase tracking-wider text-[10px] text-[var(--kuro-text-secondary)] flex items-center gap-1.5">
-            <Eye className="w-3.5 h-3.5 text-purple-400" />
-            Lens & Creative Effects
-          </span>
-          <button
-            onClick={() => {
-              setEffectValue('blur', 0, 0);
+      {activeSubTab === 'nodes' && (
+        <NodeGraphTree
+          nodes={nodes}
+          selectedNodeId={selectedNodeId}
+          onSelectNode={handleSelectNode}
+          onToggleNodeBypass={toggleNodeBypass}
+          onResetNode={(nodeId) => {
+            if (nodeId === 'node-01') {
+              updateWheelValue('lift', { x: 0, y: 0, hue: 0, sat: 0, luma: 0 });
+              updateWheelValue('gamma', { x: 0, y: 0, hue: 0, sat: 0, luma: 0 });
+              updateWheelValue('gain', { x: 0, y: 0, hue: 0, sat: 0, luma: 0 });
+              updateWheelValue('offset', { x: 0, y: 0, hue: 0, sat: 0, luma: 0 });
+            } else if (nodeId === 'node-02') {
+              updateCurves({
+                master: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+                red: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+                green: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+                blue: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+              });
+            } else if (nodeId === 'node-04') {
               setEffectValue('vignette', 0, 0);
+              setEffectValue('grain', 0, 0);
+              setEffectValue('blur', 0, 0);
               setEffectValue('sepia', 0, 0);
               setEffectValue('invert', 0, 0);
-            }}
-            className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white transition flex items-center gap-1 cursor-pointer"
-            title="Reset Lens effects"
-          >
-            <RotateCcw className="w-2.5 h-2.5" />
-            Reset Lens
-          </button>
-        </div>
+            }
+          }}
+          onAddNode={() => {
+            // Adds custom node
+            setActiveSubTab('fx');
+          }}
+        />
+      )}
 
-        {/* Vignette */}
-        <div className="space-y-1">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-[var(--kuro-text-secondary)]">Vignette (Dark Frame)</span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-white font-medium">{vignette}%</span>
-              {vignette !== 0 && (
-                <button
-                  onClick={() => setEffectValue('vignette', 0, 0)}
-                  className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white"
-                  title="Reset vignette"
-                >
-                  ↺
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={vignette}
-            onChange={(e) => setEffectValue('vignette', parseInt(e.target.value, 10), 0)}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
-          />
-        </div>
+      {activeSubTab === 'scopes' && (
+        <VideoScopes
+          exposure={exposure}
+          contrast={contrast}
+          temperature={temperature}
+          tint={tint}
+          saturation={saturation}
+          liftLuma={liftWheel.luma}
+          gainLuma={gainWheel.luma}
+        />
+      )}
 
-        {/* Blur */}
-        <div className="space-y-1">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-[var(--kuro-text-secondary)]">Optical Blur</span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-white font-medium">{blur}px</span>
-              {blur !== 0 && (
-                <button
-                  onClick={() => setEffectValue('blur', 0, 0)}
-                  className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white"
-                  title="Reset blur"
-                >
-                  ↺
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="25"
-            value={blur}
-            onChange={(e) => setEffectValue('blur', parseInt(e.target.value, 10), 0)}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
-          />
-        </div>
-
-        {/* Sepia */}
-        <div className="space-y-1">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-[var(--kuro-text-secondary)]">Sepia Warmth</span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-white font-medium">{sepia}%</span>
-              {sepia !== 0 && (
-                <button
-                  onClick={() => setEffectValue('sepia', 0, 0)}
-                  className="text-[10px] text-[var(--kuro-text-muted)] hover:text-white"
-                  title="Reset sepia"
-                >
-                  ↺
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={sepia}
-            onChange={(e) => setEffectValue('sepia', parseInt(e.target.value, 10), 0)}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
-          />
-        </div>
-
-        {/* Invert */}
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-[var(--kuro-text-secondary)] text-[11px]">Invert Negative</span>
-          <button
-            onClick={() => setEffectValue('invert', invert > 0 ? 0 : 100, 0)}
-            className={`px-3 py-1 rounded text-[10px] font-semibold transition cursor-pointer ${
-              invert > 0
-                ? 'bg-purple-500 text-white shadow-sm'
-                : 'bg-[var(--kuro-bg-panel)] text-[var(--kuro-text-muted)] hover:text-white border border-[var(--kuro-border-subtle)]'
-            }`}
-          >
-            {invert > 0 ? 'Active' : 'Off'}
-          </button>
-        </div>
-      </div>
+      {activeSubTab === 'fx' && (
+        <ColorFilmFXTab
+          vignette={vignette}
+          grain={grain}
+          blur={blur}
+          sepia={sepia}
+          invert={invert}
+          onUpdateParam={setEffectValue}
+          onResetFX={() => {
+            setEffectValue('vignette', 0, 0);
+            setEffectValue('grain', 0, 0);
+            setEffectValue('blur', 0, 0);
+            setEffectValue('sepia', 0, 0);
+            setEffectValue('invert', 0, 0);
+          }}
+        />
+      )}
     </div>
   );
 };
