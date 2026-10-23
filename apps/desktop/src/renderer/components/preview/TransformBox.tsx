@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { ClipTransform } from '@kuro/project-format';
-import { RotateCw, Move, RotateCcw } from 'lucide-react';
+import { RotateCw, Move, Maximize2 } from 'lucide-react';
 
 interface TransformBoxProps {
   clipId: string;
@@ -20,7 +20,7 @@ export const TransformBox: React.FC<TransformBoxProps> = ({
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
-  const [resizingCorner, setResizingCorner] = useState<string | null>(null);
+  const [resizingSide, setResizingSide] = useState<string | null>(null);
 
   const startDragRef = useRef<{
     startX: number;
@@ -47,9 +47,8 @@ export const TransformBox: React.FC<TransformBoxProps> = ({
   const rot = transform.rotation || 0;
 
   // Box dimensions relative to 16:9 canvas
-  // The element covers the viewport by default, scaled and translated
-  const boxW = containerWidth * scaleX;
-  const boxH = containerHeight * scaleY;
+  const boxW = Math.max(30, containerWidth * Math.abs(scaleX));
+  const boxH = Math.max(20, containerHeight * Math.abs(scaleY));
   const centerX = containerWidth / 2 + posX;
   const centerY = containerHeight / 2 + posY;
 
@@ -68,10 +67,10 @@ export const TransformBox: React.FC<TransformBoxProps> = ({
     };
   };
 
-  // ── Corner resize ──
-  const handleMouseDownCorner = (e: React.MouseEvent, corner: string) => {
+  // ── Corner & Edge resize ──
+  const handleMouseDownResize = (e: React.MouseEvent, handle: string) => {
     e.stopPropagation();
-    setResizingCorner(corner);
+    setResizingSide(handle);
     startDragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
@@ -99,7 +98,7 @@ export const TransformBox: React.FC<TransformBoxProps> = ({
   };
 
   useEffect(() => {
-    if (!isDragging && !resizingCorner && !isRotating) return;
+    if (!isDragging && !resizingSide && !isRotating) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       const dx = e.clientX - startDragRef.current.startX;
@@ -110,22 +109,42 @@ export const TransformBox: React.FC<TransformBoxProps> = ({
           x: Math.round(startDragRef.current.initialTransformX + dx),
           y: Math.round(startDragRef.current.initialTransformY + dy),
         });
-      } else if (resizingCorner) {
-        // Uniform scaling based on distance moved
-        let factor = 1.0;
-        if (resizingCorner === 'br') factor = (dx + dy) / 2;
-        else if (resizingCorner === 'bl') factor = (-dx + dy) / 2;
-        else if (resizingCorner === 'tr') factor = (dx - dy) / 2;
-        else if (resizingCorner === 'tl') factor = (-dx - dy) / 2;
+      } else if (resizingSide) {
+        // Uniform diagonal corner resize
+        if (['tl', 'tr', 'bl', 'br'].includes(resizingSide)) {
+          let factor = 1.0;
+          if (resizingSide === 'br') factor = (dx + dy) / 2;
+          else if (resizingSide === 'bl') factor = (-dx + dy) / 2;
+          else if (resizingSide === 'tr') factor = (dx - dy) / 2;
+          else if (resizingSide === 'tl') factor = (-dx - dy) / 2;
 
-        const newScale = Math.max(0.1, Math.min(4.0, startDragRef.current.initialScaleX + factor / 150));
-        onUpdateTransform({
-          scaleX: parseFloat(newScale.toFixed(2)),
-          scaleY: parseFloat(newScale.toFixed(2)),
-        });
+          const sensitivity = Math.max(120, containerWidth * 0.35);
+          const newScale = Math.max(0.05, Math.min(8.0, startDragRef.current.initialScaleX + factor / sensitivity));
+          onUpdateTransform({
+            scaleX: parseFloat(newScale.toFixed(3)),
+            scaleY: parseFloat(newScale.toFixed(3)),
+          });
+        }
+        // Horizontal side resize (X only)
+        else if (resizingSide === 'e' || resizingSide === 'w') {
+          const deltaX = resizingSide === 'e' ? dx : -dx;
+          const sensitivity = Math.max(100, containerWidth * 0.4);
+          const newScaleX = Math.max(0.05, Math.min(8.0, startDragRef.current.initialScaleX + deltaX / sensitivity));
+          onUpdateTransform({
+            scaleX: parseFloat(newScaleX.toFixed(3)),
+          });
+        }
+        // Vertical side resize (Y only)
+        else if (resizingSide === 'n' || resizingSide === 's') {
+          const deltaY = resizingSide === 's' ? dy : -dy;
+          const sensitivity = Math.max(80, containerHeight * 0.4);
+          const newScaleY = Math.max(0.05, Math.min(8.0, startDragRef.current.initialScaleY + deltaY / sensitivity));
+          onUpdateTransform({
+            scaleY: parseFloat(newScaleY.toFixed(3)),
+          });
+        }
       } else if (isRotating) {
-        // Angle from center
-        const angleDelta = Math.round(dx * 0.5);
+        const angleDelta = Math.round(dx * 0.4);
         let newRot = (startDragRef.current.initialRot + angleDelta) % 360;
         if (newRot > 180) newRot -= 360;
         if (newRot < -180) newRot += 360;
@@ -137,7 +156,7 @@ export const TransformBox: React.FC<TransformBoxProps> = ({
 
     const handleMouseUp = () => {
       setIsDragging(false);
-      setResizingCorner(null);
+      setResizingSide(null);
       setIsRotating(false);
     };
 
@@ -147,7 +166,7 @@ export const TransformBox: React.FC<TransformBoxProps> = ({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, resizingCorner, isRotating, onUpdateTransform]);
+  }, [isDragging, resizingSide, isRotating, containerWidth, containerHeight, onUpdateTransform]);
 
   return (
     <div
@@ -164,18 +183,20 @@ export const TransformBox: React.FC<TransformBoxProps> = ({
       {/* Active Selection Outline */}
       <div
         onMouseDown={handleMouseDownMove}
-        className={`w-full h-full border-2 border-blue-400 bg-blue-500/5 hover:bg-blue-500/10 cursor-move relative flex items-center justify-center transition-colors ${
-          isDragging ? 'border-amber-400 bg-amber-500/15' : ''
+        className={`w-full h-full border-2 border-blue-400 bg-blue-500/10 hover:bg-blue-500/15 cursor-move relative flex items-center justify-center transition-colors ${
+          isDragging ? 'border-amber-400 bg-amber-500/20 shadow-lg' : ''
         }`}
       >
         {/* Center Pivot Crosshair */}
-        <div className="w-2.5 h-2.5 rounded-full border border-blue-400 bg-white/80 shadow pointer-events-none" />
+        <div className="w-2.5 h-2.5 rounded-full border border-blue-400 bg-white shadow-sm pointer-events-none" />
 
-        {/* Clip Name Floating Badge */}
-        <div className="absolute top-1 left-2 bg-blue-600/90 text-white font-mono text-[9px] px-1.5 py-0.5 rounded shadow pointer-events-none tracking-wide flex items-center gap-1">
+        {/* Clip Name Floating HUD */}
+        <div className="absolute top-1 left-2 bg-blue-600/90 text-white font-mono text-[9px] px-1.5 py-0.5 rounded shadow pointer-events-none tracking-wide flex items-center gap-1.5">
           <Move className="w-2.5 h-2.5" />
-          <span className="truncate max-w-[120px]">{clipName}</span>
-          <span className="text-white/60">({Math.round(scaleX * 100)}%)</span>
+          <span className="truncate max-w-[120px] font-semibold">{clipName}</span>
+          <span className="text-white/70">
+            {Math.round(scaleX * 100)}% · {rot}°
+          </span>
         </div>
       </div>
 
@@ -183,38 +204,56 @@ export const TransformBox: React.FC<TransformBoxProps> = ({
       <div
         className="absolute left-1/2 -top-6 -translate-x-1/2 flex flex-col items-center cursor-grab active:cursor-grabbing group"
         onMouseDown={handleMouseDownRotate}
-        title="Drag to Rotate"
+        title="Drag horizontally to rotate"
       >
-        <div className="w-3.5 h-3.5 rounded-full bg-blue-500 border-2 border-white shadow-md group-hover:scale-125 transition-transform flex items-center justify-center">
-          <RotateCw className="w-2 h-2 text-white" />
+        <div className="w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow-md group-hover:scale-125 transition-transform flex items-center justify-center">
+          <RotateCw className="w-2.5 h-2.5 text-white" />
         </div>
         <div className="w-0.5 h-2.5 bg-blue-400" />
       </div>
 
       {/* ── 4 Corner Handles for Scaling ── */}
-      {/* Top Left */}
       <div
-        onMouseDown={(e) => handleMouseDownCorner(e, 'tl')}
-        className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-blue-500 rounded-xs shadow cursor-nwse-resize hover:scale-125 transition-transform"
-        title="Resize"
+        onMouseDown={(e) => handleMouseDownResize(e, 'tl')}
+        className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-500 rounded-xs shadow cursor-nwse-resize hover:scale-125 transition-transform"
+        title="Resize diagonal"
       />
-      {/* Top Right */}
       <div
-        onMouseDown={(e) => handleMouseDownCorner(e, 'tr')}
-        className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-blue-500 rounded-xs shadow cursor-nesw-resize hover:scale-125 transition-transform"
-        title="Resize"
+        onMouseDown={(e) => handleMouseDownResize(e, 'tr')}
+        className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-500 rounded-xs shadow cursor-nesw-resize hover:scale-125 transition-transform"
+        title="Resize diagonal"
       />
-      {/* Bottom Left */}
       <div
-        onMouseDown={(e) => handleMouseDownCorner(e, 'bl')}
-        className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-blue-500 rounded-xs shadow cursor-nesw-resize hover:scale-125 transition-transform"
-        title="Resize"
+        onMouseDown={(e) => handleMouseDownResize(e, 'bl')}
+        className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-500 rounded-xs shadow cursor-nesw-resize hover:scale-125 transition-transform"
+        title="Resize diagonal"
       />
-      {/* Bottom Right */}
       <div
-        onMouseDown={(e) => handleMouseDownCorner(e, 'br')}
-        className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-blue-500 rounded-xs shadow cursor-nwse-resize hover:scale-125 transition-transform"
-        title="Resize"
+        onMouseDown={(e) => handleMouseDownResize(e, 'br')}
+        className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-500 rounded-xs shadow cursor-nwse-resize hover:scale-125 transition-transform"
+        title="Resize diagonal"
+      />
+
+      {/* ── 4 Edge Midpoint Handles ── */}
+      <div
+        onMouseDown={(e) => handleMouseDownResize(e, 'n')}
+        className="absolute -top-1 left-1/2 -translate-x-1/2 w-4 h-2 bg-white border border-blue-500 rounded-xs shadow cursor-ns-resize hover:scale-125 transition-transform"
+        title="Resize height"
+      />
+      <div
+        onMouseDown={(e) => handleMouseDownResize(e, 's')}
+        className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-2 bg-white border border-blue-500 rounded-xs shadow cursor-ns-resize hover:scale-125 transition-transform"
+        title="Resize height"
+      />
+      <div
+        onMouseDown={(e) => handleMouseDownResize(e, 'w')}
+        className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-4 bg-white border border-blue-500 rounded-xs shadow cursor-ew-resize hover:scale-125 transition-transform"
+        title="Resize width"
+      />
+      <div
+        onMouseDown={(e) => handleMouseDownResize(e, 'e')}
+        className="absolute top-1/2 -right-1 -translate-y-1/2 w-2 h-4 bg-white border border-blue-500 rounded-xs shadow cursor-ew-resize hover:scale-125 transition-transform"
+        title="Resize width"
       />
     </div>
   );
