@@ -3,7 +3,7 @@ import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { AddClipCommand } from '@kuro/editor-core';
 import { generateId } from '@kuro/shared';
-import { AssetReference } from '@kuro/project-format';
+import { AssetReference, Clip } from '@kuro/project-format';
 import {
   Music,
   Search,
@@ -174,13 +174,14 @@ export const AudioPanel: React.FC = () => {
       assets: [...curProj.assets, newAsset],
     });
 
-    const newClip = {
+    const newClip: Clip = {
       id: generateId('clip_audio'),
       assetId,
+      trackId: audioTrack.id,
       timelineStartTicks: playheadTicks,
       durationTicks: clipDurationTicks,
-      inPointTicks: 0,
-      outPointTicks: clipDurationTicks,
+      sourceInTicks: 0,
+      sourceOutTicks: clipDurationTicks,
       audio: {
         volume: 1.0,
       },
@@ -188,8 +189,8 @@ export const AudioPanel: React.FC = () => {
     };
 
     const cmd = new AddClipCommand(newClip, audioTrack.id);
-    if (cmd.canExecute({ getProject: () => editorStore.getProject(), setProject: () => {} })) {
-      await editorStore.executeCommand(cmd);
+    const success = await editorStore.executeCommand(cmd);
+    if (success) {
       setAddedId(sample.id);
       setTimeout(() => setAddedId(null), 1800);
     } else {
@@ -198,7 +199,7 @@ export const AudioPanel: React.FC = () => {
         const cEnd = c.timelineStartTicks + c.durationTicks;
         if (cEnd > maxEnd) maxEnd = cEnd;
       }
-      const adjustedClip = { ...newClip, timelineStartTicks: maxEnd };
+      const adjustedClip: Clip = { ...newClip, timelineStartTicks: maxEnd };
       const fallbackCmd = new AddClipCommand(adjustedClip, audioTrack.id);
       await editorStore.executeCommand(fallbackCmd);
       setAddedId(sample.id);

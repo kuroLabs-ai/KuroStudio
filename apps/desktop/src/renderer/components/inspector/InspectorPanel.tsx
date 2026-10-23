@@ -93,7 +93,7 @@ export const InspectorPanel: React.FC = () => {
     };
 
     const updatedTracks = currentProj.tracks.map((t) =>
-      t.id === selectedClip!.trackId
+      t.clips.some((c) => c.id === selectedClip!.id)
         ? { ...t, clips: t.clips.map((c) => (c.id === selectedClip!.id ? updatedClip : c)) }
         : t
     );
@@ -125,7 +125,7 @@ export const InspectorPanel: React.FC = () => {
     };
 
     const updatedTracks = currentProj.tracks.map((t) =>
-      t.id === selectedClip!.trackId
+      t.clips.some((c) => c.id === selectedClip!.id)
         ? { ...t, clips: t.clips.map((c) => (c.id === selectedClip!.id ? updatedClip : c)) }
         : t
     );
@@ -147,7 +147,7 @@ export const InspectorPanel: React.FC = () => {
     };
 
     const updatedTracks = currentProj.tracks.map((t) =>
-      t.id === selectedClip!.trackId
+      t.clips.some((c) => c.id === selectedClip!.id)
         ? { ...t, clips: t.clips.map((c) => (c.id === selectedClip!.id ? updatedClip : c)) }
         : t
     );
@@ -187,7 +187,7 @@ export const InspectorPanel: React.FC = () => {
     };
 
     const updatedTracks = currentProj.tracks.map((t) =>
-      t.id === selectedClip!.trackId
+      t.clips.some((c) => c.id === selectedClip!.id)
         ? { ...t, clips: t.clips.map((c) => (c.id === selectedClip!.id ? updatedClip : c)) }
         : t
     );

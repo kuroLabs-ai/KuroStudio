@@ -209,12 +209,23 @@ export const PreviewMonitor: React.FC = () => {
     return orderedVideoTracks
       .filter((t) => !t.hidden)
       .map((track, layerIdx) => {
-        // STRICT: only the clip whose range contains playheadTicks (no fallback to selected)
-        const clip = track.clips.find(
+        // Primary: clip whose timeline range contains the playhead
+        const clipAtPlayhead = track.clips.find(
           (c) =>
             playheadTicks >= c.timelineStartTicks &&
             playheadTicks < c.timelineStartTicks + c.durationTicks
         );
+
+        // Fallback: if playhead is in a gap on this track but the active selected clip
+        // is on this track, show it so Inspector edits are reflected live in real-time.
+        const fallbackClip =
+          !clipAtPlayhead && activeSelectedClipId
+            ? track.clips.find((c) => c.id === activeSelectedClipId)
+            : undefined;
+
+        const clip = clipAtPlayhead ?? fallbackClip ?? null;
+        const isAtPlayhead = !!clipAtPlayhead;
+        const isFallback = !clipAtPlayhead && !!fallbackClip;
 
         const asset = clip ? project.assets.find((a) => a.id === clip.assetId) : undefined;
         const blobUrl = (asset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'] as string | undefined;
@@ -227,8 +238,10 @@ export const PreviewMonitor: React.FC = () => {
 
         return {
           track,
-          clip: clip ?? null,           // null = gap at this playhead position
-          hasClip: !!clip,              // whether we're inside a clip or in a gap
+          clip,
+          hasClip: !!clip,
+          isAtPlayhead,
+          isFallback,
           asset: asset ?? undefined,
           blobUrl,
           isTitle,
@@ -239,7 +252,7 @@ export const PreviewMonitor: React.FC = () => {
           layerIndex: layerIdx,
         };
       });
-  }, [project.tracks, project.assets, playheadTicks]);
+  }, [project.tracks, project.assets, playheadTicks, activeSelectedClipId]);
 
   // activeVisualLayers = only the ones with a clip at playhead (for header count, images, titles)
   const activeVisualLayers = useMemo(
@@ -288,11 +301,18 @@ export const PreviewMonitor: React.FC = () => {
           : 1;
 
       const sourceInTicks = Number.isFinite(clip.sourceInTicks) ? clip.sourceInTicks : 0;
-      const offsetTicksFromClipStart = playheadTicks - clip.timelineStartTicks;
-      const sourceOffsetTicks = sourceInTicks + offsetTicksFromClipStart * speedRatio;
-      const targetTime = Math.max(0, sourceOffsetTicks / project.timelineTimebase);
+      let targetTime: number;
 
-      if (isPlaying) {
+      if (state.isFallback) {
+        // Fallback selected clip: display start of clip cleanly
+        targetTime = Math.max(0, sourceInTicks / project.timelineTimebase);
+      } else {
+        const offsetTicksFromClipStart = playheadTicks - clip.timelineStartTicks;
+        const sourceOffsetTicks = sourceInTicks + offsetTicksFromClipStart * speedRatio;
+        targetTime = Math.max(0, sourceOffsetTicks / project.timelineTimebase);
+      }
+
+      if (isPlaying && !state.isFallback) {
         el.playbackRate = Math.max(0.1, speedRatio);
         // Sync seek if drifting by > 0.25s
         if (Math.abs(el.currentTime - targetTime) > 0.25) {

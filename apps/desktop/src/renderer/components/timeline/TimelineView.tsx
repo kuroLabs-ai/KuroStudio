@@ -857,7 +857,7 @@ export const TimelineView: React.FC = () => {
       id: freezeAssetId,
       name: `Freeze Frame (${parentAsset?.name || 'Frame'})`,
       type: 'image',
-      storageMode: 'embedded',
+      storageMode: 'managed',
       filePath: `freeze://${freezeAssetId}.jpg`,
       fileSizeBytes: frameDataUrl ? Math.round(frameDataUrl.length * 0.75) : 0,
       durationTicks: freezeDurationTicks,
@@ -1174,6 +1174,7 @@ export const TimelineView: React.FC = () => {
 
     if (dataTransfer.files && dataTransfer.files.length > 0) {
       const file = dataTransfer.files[0];
+      if (!file) return;
       const blobUrl = URL.createObjectURL(file);
       const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|ogg)$/i.test(file.name);
       const assetId = generateId('asset');
@@ -1310,6 +1311,7 @@ export const TimelineView: React.FC = () => {
           for (let i = 0; i < sorted.length - 1; i++) {
             const outClip = sorted[i];
             const inClip = sorted[i + 1];
+            if (!outClip || !inClip) continue;
             const cutTicks = outClip.timelineStartTicks + outClip.durationTicks;
             const dist = Math.abs(dropTicks - cutTicks);
             if (dist < closestDist) {
@@ -1722,7 +1724,22 @@ export const TimelineView: React.FC = () => {
           getTrackHeight={(id) => timelineStore.getTrackHeight(id)}
           onStartResizeTrack={handleStartResizeTrack}
           onScrubPlayhead={(ticks) => timelineStore.setPlayheadTicks(ticks)}
-          onSelectClip={(clipId, multi) => timelineStore.selectClip(clipId, multi)}
+          onSelectClip={(clipId, multi) => {
+            timelineStore.selectClip(clipId, multi);
+            if (!multi) {
+              const proj = editorStore.getProject();
+              for (const t of proj.tracks) {
+                const c = t.clips.find((cl) => cl.id === clipId);
+                if (c) {
+                  const ph = timelineStore.getPlayheadTicks();
+                  if (ph < c.timelineStartTicks || ph >= c.timelineStartTicks + c.durationTicks) {
+                    timelineStore.setPlayheadTicks(c.timelineStartTicks);
+                  }
+                  break;
+                }
+              }
+            }
+          }}
           onClearSelection={() => timelineStore.clearSelection()}
           onSetSelectedClipIds={(ids) => timelineStore.setSelectedClipIds(ids)}
           onStartMoveClip={(info) => setMovingClip(info)}

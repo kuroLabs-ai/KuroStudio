@@ -320,7 +320,7 @@ const TimelineClipItem: React.FC<{
           currentTicks: clip.timelineStartTicks,
           startX: e.clientX,
           startY: e.clientY,
-          clipKind: track.kind,
+          clipKind: track.kind === 'audio' ? 'audio' : 'video',
           durationTicks: clip.durationTicks,
         });
       }}
