@@ -745,13 +745,39 @@ export const PreviewMonitor: React.FC = () => {
             // 3. Text / Title Layer (Overlay on Top of Everything)
             if (layer.isTitle && layer.clip) {
               const meta = (layer.asset?.metadata as Record<string, unknown> | undefined) || {};
-              const fontSize = Number(meta['fontSize'] || 28);
+              const fontSize = Number(meta['fontSize'] || 36);
               const fontFamily = (meta['fontFamily'] as string) || 'Inter';
               const textColor = (meta['textColor'] as string) || '#ffffff';
               const isBold = meta['isBold'] !== false;
+              const isItalic = !!meta['isItalic'];
+              const isUnderline = !!meta['isUnderline'];
               const textAlign = (meta['textAlign'] as any) || 'center';
-              const showBg = meta['showBackground'] !== false;
+              const textTransform = (meta['textTransform'] as any) || 'none';
+              const letterSpacing = Number(meta['letterSpacing'] || 0);
+              const lineHeight = Number(meta['lineHeight'] || 1.2);
+
+              const showBg = !!meta['showBackground'];
+              const backgroundColor = (meta['backgroundColor'] as string) || 'rgba(0,0,0,0.75)';
+              const bgPadding = Number(meta['bgPadding'] || 12);
+              const bgRadius = Number(meta['bgRadius'] || 8);
+
+              const strokeWidth = Number(meta['strokeWidth'] || 0);
+              const strokeColor = (meta['strokeColor'] as string) || '#000000';
+
+              const shadowBlur = Number(meta['shadowBlur'] || 8);
+              const shadowColor = (meta['shadowColor'] as string) || 'rgba(0,0,0,0.85)';
+              const shadowOffsetX = Number(meta['shadowOffsetX'] || 0);
+              const shadowOffsetY = Number(meta['shadowOffsetY'] || 3);
+
               const titleTransform = computeTransformStyle(layer.clip);
+
+              const textShadowStyle = shadowBlur > 0
+                ? `${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${shadowColor}`
+                : undefined;
+
+              const webkitTextStroke = strokeWidth > 0
+                ? `${strokeWidth}px ${strokeColor}`
+                : undefined;
 
               return (
                 <div
@@ -760,17 +786,31 @@ export const PreviewMonitor: React.FC = () => {
                   style={{ zIndex, ...titleTransform }}
                 >
                   <div
-                    className={`${showBg ? 'bg-black/70 border border-white/30 shadow-2xl backdrop-blur-xs' : ''} px-6 py-2.5 rounded-lg`}
+                    style={showBg ? {
+                      backgroundColor,
+                      padding: `${bgPadding}px ${bgPadding * 1.5}px`,
+                      borderRadius: `${bgRadius}px`,
+                      backdropFilter: 'blur(8px)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                    } : undefined}
                   >
                     <span
                       style={{
                         fontSize: `${fontSize}px`,
                         fontFamily,
                         color: textColor,
-                        fontWeight: isBold ? 800 : 500,
+                        fontWeight: isBold ? 800 : 400,
+                        fontStyle: isItalic ? 'italic' : 'normal',
+                        textDecoration: isUnderline ? 'underline' : 'none',
                         textAlign,
+                        textTransform,
+                        letterSpacing: `${letterSpacing}px`,
+                        lineHeight,
+                        textShadow: textShadowStyle,
+                        WebkitTextStroke: webkitTextStroke,
+                        display: 'block',
                       }}
-                      className="tracking-wider uppercase block drop-shadow-lg"
                     >
                       {(meta['text'] as string) || layer.titleText}
                     </span>

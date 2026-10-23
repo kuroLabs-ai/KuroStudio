@@ -1223,6 +1223,7 @@ export const TimelineView: React.FC = () => {
           audio: asset.type === 'audio' || asset.type === 'video' ? { volume: 1.0 } : undefined,
         };
         await safelyInsertClip(track.id, newClip);
+        timelineStore.selectClip(newClip.id);
         return;
       } catch {
         // ignore
