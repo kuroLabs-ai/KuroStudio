@@ -126,13 +126,14 @@ export const MediaBin: React.FC = () => {
         durationSec = 5.0;
       }
 
+      const localFilePath = (file as unknown as { path?: string }).path || file.name;
       const assetId = generateId('asset');
       const assetRef: AssetReference = {
         id: assetId,
         name: file.name,
         type: assetType,
         storageMode: 'linked',
-        filePath: file.name,
+        filePath: localFilePath,
         fileSizeBytes: file.size,
         durationTicks: Math.round(durationSec * project.timelineTimebase),
         width: isVideo || isImg ? width : undefined,
@@ -140,6 +141,7 @@ export const MediaBin: React.FC = () => {
         thumbnailPath: thumbnailDataUrl,
         metadata: {
           blobUrl,
+          localPath: (file as unknown as { path?: string }).path || undefined,
           mimeType: file.type,
           lastModified: file.lastModified,
         },

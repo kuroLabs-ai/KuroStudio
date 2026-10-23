@@ -240,30 +240,52 @@ const TimelineClipItem: React.FC<{
   const clipWidth = Math.max(36, displayDurationTicks * pixelsPerTick);
   const durationSec = displayDurationTicks / timelineTimebase;
 
-  const blobUrl = (asset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'] as string | undefined;
+  // Exact in-sync source boundaries for this cut of the clip
+  const sourceInSec = (clip.sourceInTicks ?? 0) / timelineTimebase;
+  const sourceOutSec =
+    (clip.sourceOutTicks ?? ((clip.sourceInTicks ?? 0) + clip.durationTicks)) / timelineTimebase;
 
-  // Load Real Waveforms
+  const blobUrl = (asset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'] as string | undefined;
+  const localPath =
+    ((asset?.metadata as Record<string, unknown> | undefined)?.['localPath'] as string | undefined) ||
+    asset?.filePath;
+
+  // Load Real Waveforms from video file via native FFmpeg or Web Audio
   useEffect(() => {
     let isMounted = true;
     const targetUrl = blobUrl || asset?.filePath || '';
     if (targetUrl) {
-      getRealAudioWaveform(targetUrl, clip.assetId, 300).then((peaks) => {
+      getRealAudioWaveform(targetUrl, clip.assetId, 400, localPath).then((peaks) => {
         if (isMounted) setWavePeaks(peaks);
       });
     }
     return () => {
       isMounted = false;
     };
-  }, [blobUrl, asset?.filePath, clip.assetId]);
+  }, [blobUrl, asset?.filePath, clip.assetId, localPath]);
 
-  // Load Filmstrip Thumbnails for Video Clips
+  // Sliced waveform peaks strictly in sync with this clip cut
+  const clipWavePeaks = useMemo(() => {
+    if (wavePeaks.length === 0) return [];
+    const assetDur =
+      (asset?.durationTicks ? asset.durationTicks / timelineTimebase : 0) ||
+      Math.max(sourceOutSec, 1);
+    const startRatio = Math.max(0, Math.min(1, sourceInSec / assetDur));
+    const endRatio = Math.max(startRatio + 0.005, Math.min(1, sourceOutSec / assetDur));
+    const startIdx = Math.floor(startRatio * wavePeaks.length);
+    const endIdx = Math.max(startIdx + 1, Math.ceil(endRatio * wavePeaks.length));
+    return wavePeaks.slice(startIdx, endIdx);
+  }, [wavePeaks, sourceInSec, sourceOutSec, asset?.durationTicks, timelineTimebase]);
+
+  // Load Filmstrip Thumbnails for Video Clips strictly in sync with this clip cut
   useEffect(() => {
     if (track.kind !== 'video') return;
     let isMounted = true;
     const targetUrl = blobUrl || asset?.filePath || '';
     if (targetUrl && (asset?.type === 'video' || !asset?.type)) {
       const targetCount = Math.max(2, Math.min(16, Math.floor(clipWidth / 90)));
-      extractVideoFilmstrip(targetUrl, clip.assetId, durationSec, targetCount).then((frames) => {
+      const filmstripKey = `${clip.assetId}_${Math.round(sourceInSec * 10)}_${Math.round(sourceOutSec * 10)}_${targetCount}`;
+      extractVideoFilmstrip(targetUrl, filmstripKey, sourceInSec, sourceOutSec, durationSec, targetCount).then((frames) => {
         if (isMounted && frames.length > 0) {
           setFilmstripFrames(frames);
         }
@@ -272,7 +294,7 @@ const TimelineClipItem: React.FC<{
     return () => {
       isMounted = false;
     };
-  }, [track.kind, blobUrl, asset?.filePath, clip.assetId, clipWidth, durationSec, asset?.type]);
+  }, [track.kind, blobUrl, asset?.filePath, clip.assetId, clipWidth, durationSec, sourceInSec, sourceOutSec, asset?.type]);
 
   const speedVal =
     clip.speedNumerator && clip.speedDenominator
@@ -466,14 +488,14 @@ const TimelineClipItem: React.FC<{
       {/* For Audio tracks: full-height mirrored waveform. For Video tracks: bottom acoustic wave strip */}
       {track.kind === 'audio' ? (
         <div className="relative z-10 flex-1 px-1 py-1 flex items-center bg-black/30 pointer-events-none">
-          <WaveformCanvas peaks={wavePeaks} color="#38bdf8" isAudioTrack={true} />
+          <WaveformCanvas peaks={clipWavePeaks} color="#38bdf8" isAudioTrack={true} />
         </div>
       ) : (
         <div
           style={{ height: `${audioWaveformHeight}px` }}
           className="relative z-10 px-1 pb-0.5 bg-black/70 backdrop-blur-xs border-t border-black/60 pointer-events-none shrink-0 flex items-end"
         >
-          <WaveformCanvas peaks={wavePeaks} color="#4ade80" isAudioTrack={false} />
+          <WaveformCanvas peaks={clipWavePeaks} color="#4ade80" isAudioTrack={false} />
         </div>
       )}
     </div>
