@@ -12,7 +12,7 @@ export class AddTransitionCommand implements ICommand<TransitionInstance> {
   private previousProjectState?: Project;
 
   constructor(
-    transitionType: 'cross-dissolve' | 'fade-to-black' | 'hard-cut',
+    transitionType: 'cross-dissolve' | 'fade-to-black' | 'hard-cut' | string,
     outgoingClipId: string,
     incomingClipId: string,
     durationTicks: TimelineTicks

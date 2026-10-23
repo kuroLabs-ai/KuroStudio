@@ -93,7 +93,7 @@ export interface EffectInstance {
 
 export interface TransitionInstance {
   id: string;
-  transitionType: 'cross-dissolve' | 'fade-to-black' | 'hard-cut';
+  transitionType: 'cross-dissolve' | 'fade-to-black' | 'hard-cut' | string;
   durationTicks: TimelineTicks;
   outgoingClipId: string;
   incomingClipId: string;
