@@ -1,4 +1,4 @@
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 const bridgeImplementation = {
   getAppVersion: () => '0.1.0',
@@ -12,6 +12,13 @@ const bridgeImplementation = {
     allStreams: [],
   }),
   getStoreCatalog: async () => [],
+  extractAudioWaveform: async (filePath, sampleCount = 400) => {
+    try {
+      return await ipcRenderer.invoke('extract-audio-waveform', filePath, sampleCount);
+    } catch {
+      return null;
+    }
+  },
 };
 
 try {

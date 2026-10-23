@@ -1178,15 +1178,20 @@ export const TimelineView: React.FC = () => {
       const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|ogg)$/i.test(file.name);
       const assetId = generateId('asset');
       const durationTicks = Math.round(5.0 * currentProj.timelineTimebase);
+      const localFilePath = (file as unknown as { path?: string }).path || file.name;
       const newAsset: AssetReference = {
         id: assetId,
         name: file.name,
         type: isAudio ? 'audio' : 'video',
         storageMode: 'linked',
-        filePath: file.name,
+        filePath: localFilePath,
         fileSizeBytes: file.size,
         durationTicks,
-        metadata: { blobUrl, mimeType: file.type },
+        metadata: {
+          blobUrl,
+          localPath: (file as unknown as { path?: string }).path || undefined,
+          mimeType: file.type
+        },
       };
       editorStore.getEditorState().setProject({
         ...currentProj,
