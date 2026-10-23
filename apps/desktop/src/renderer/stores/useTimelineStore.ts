@@ -12,6 +12,8 @@ class TimelineStore {
   private selectedClipIds: string[] = [];
   private selectedTrackId: string | null = null;
   private activeTool: TimelineTool = 'select';
+  private defaultTrackHeight = 72; // Default height in px for tracks (extended Y)
+  private trackHeights: Record<string, number> = {};
   private listeners = new Set<Listener>();
 
   // rAF-based global playback clock (advances playhead every frame when playing)
@@ -144,6 +146,29 @@ class TimelineStore {
   public clearSelection(): void {
     this.selectedClipIds = [];
     this.selectedTrackId = null;
+    this.notify();
+  }
+
+  public getDefaultTrackHeight(): number {
+    return this.defaultTrackHeight;
+  }
+
+  public setDefaultTrackHeight(height: number): void {
+    this.defaultTrackHeight = Math.max(48, Math.min(240, height));
+    this.notify();
+  }
+
+  public getTrackHeight(trackId: string): number {
+    return this.trackHeights[trackId] ?? this.defaultTrackHeight;
+  }
+
+  public setTrackHeight(trackId: string, height: number): void {
+    this.trackHeights[trackId] = Math.max(48, Math.min(240, height));
+    this.notify();
+  }
+
+  public resetTrackHeights(): void {
+    this.trackHeights = {};
     this.notify();
   }
 

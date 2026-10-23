@@ -26,7 +26,8 @@ import {
   Gauge,
   Snowflake,
   Unlink,
-  FastForward
+  FastForward,
+  MoveVertical
 } from 'lucide-react';
 import { TimelineTrackHeaders } from './TimelineTrackHeaders';
 import { TimelineViewport } from './TimelineViewport';
@@ -59,6 +60,13 @@ export const TimelineView: React.FC = () => {
   } | null>(null);
 
   // Interactive Edge Trimming State (Extending or Compressing Duration)
+  // Track Height Resizing State (Extending Layer in Y)
+  const [resizingTrack, setResizingTrack] = useState<{
+    trackId: string;
+    startY: number;
+    initialHeight: number;
+  } | null>(null);
+
   const [trimmingClip, setTrimmingClip] = useState<{
     clipId: string;
     trackId: string;
@@ -322,6 +330,38 @@ export const TimelineView: React.FC = () => {
       tracks: [...currentProj.tracks, newTrack],
     });
     return newTrack.id;
+  };
+
+  // ─── Interactive Track Height (Y) Resizing Listener ───────────────────────
+  useEffect(() => {
+    if (!resizingTrack) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaY = e.clientY - resizingTrack.startY;
+      const newHeight = Math.max(48, Math.min(240, resizingTrack.initialHeight + deltaY));
+      timelineStore.setTrackHeight(resizingTrack.trackId, newHeight);
+    };
+
+    const handleMouseUp = () => {
+      setResizingTrack(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [resizingTrack]);
+
+  const handleStartResizeTrack = (trackId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizingTrack({
+      trackId,
+      startY: e.clientY,
+      initialHeight: timelineStore.getTrackHeight(trackId),
+    });
   };
 
   // Delete Track
@@ -1561,6 +1601,37 @@ export const TimelineView: React.FC = () => {
             <span>Snapping</span>
           </button>
 
+          {/* Layer Height (Y-Extension) Presets */}
+          <div className="flex items-center gap-1 bg-[var(--kuro-bg-surface)] px-1.5 py-0.5 rounded border border-[var(--kuro-border-subtle)] text-[10px] font-mono">
+            <span className="text-[var(--kuro-text-muted)] text-[9px] uppercase font-bold flex items-center gap-0.5">
+              <MoveVertical className="w-2.5 h-2.5" />
+              Y:
+            </span>
+            {[
+              { label: 'S', h: 52 },
+              { label: 'M', h: 72 },
+              { label: 'L', h: 105 },
+              { label: 'XL', h: 150 },
+            ].map(({ label, h }) => (
+              <button
+                key={label}
+                onClick={() => {
+                  timelineStore.setDefaultTrackHeight(h);
+                  timelineStore.resetTrackHeights();
+                }}
+                className={`px-1 py-0.2 rounded font-bold transition cursor-pointer ${
+                  timelineStore.getDefaultTrackHeight() === h
+                    ? 'bg-white text-black'
+                    : 'text-[var(--kuro-text-muted)] hover:text-white hover:bg-[var(--kuro-bg-hover)]'
+                }`}
+                title={`Extend Layer Height to ${h}px (${label})`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-3.5 w-px bg-[var(--kuro-border-base)] mx-0.5" />
           <div className="flex items-center gap-1.5 text-[var(--kuro-text-muted)] text-xs bg-[var(--kuro-bg-surface)] px-2 py-0.5 rounded border border-[var(--kuro-border-subtle)]">
             <button
               onClick={() => timelineStore.setZoom(Math.max(0.02, zoom - 0.2))}
@@ -1614,6 +1685,8 @@ export const TimelineView: React.FC = () => {
           onAddAudioTrack={handleAddAudioTrack}
           onDeleteTrack={handleDeleteTrack}
           onToggleMute={handleToggleMute}
+          getTrackHeight={(id) => timelineStore.getTrackHeight(id)}
+          onStartResizeTrack={handleStartResizeTrack}
           containerRef={headerRef}
         />
 
@@ -1641,6 +1714,8 @@ export const TimelineView: React.FC = () => {
           videoTracksCount={videoTracks.length}
           audioTracksCount={audioTracks.length}
           totalDurationSec={totalDurationSec}
+          getTrackHeight={(id) => timelineStore.getTrackHeight(id)}
+          onStartResizeTrack={handleStartResizeTrack}
           onScrubPlayhead={(ticks) => timelineStore.setPlayheadTicks(ticks)}
           onSelectClip={(clipId, multi) => timelineStore.selectClip(clipId, multi)}
           onClearSelection={() => timelineStore.clearSelection()}

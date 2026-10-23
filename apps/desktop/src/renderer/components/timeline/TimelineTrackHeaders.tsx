@@ -13,6 +13,8 @@ export interface TimelineTrackHeadersProps {
   onAddAudioTrack: () => string;
   onDeleteTrack: (trackId: string, e: React.MouseEvent) => void;
   onToggleMute: (trackId: string, currentMuted: boolean) => void;
+  getTrackHeight: (trackId: string) => number;
+  onStartResizeTrack: (trackId: string, e: React.MouseEvent) => void;
   containerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -27,6 +29,8 @@ export const TimelineTrackHeaders: React.FC<TimelineTrackHeadersProps> = ({
   onAddAudioTrack,
   onDeleteTrack,
   onToggleMute,
+  getTrackHeight,
+  onStartResizeTrack,
   containerRef,
 }) => {
   return (
@@ -85,6 +89,7 @@ export const TimelineTrackHeaders: React.FC<TimelineTrackHeadersProps> = ({
           const isMainAudio = track.id === mainAudioTrack?.id;
           const isCustomTrack = !isMainVideo && !isMainAudio;
           const isOver = dragOverTrackId === track.id;
+          const trackHeight = getTrackHeight(track.id);
 
           let trackLabel = track.name;
           let subLabel = `${track.clips.length} clip${track.clips.length === 1 ? '' : 's'}`;
@@ -101,7 +106,8 @@ export const TimelineTrackHeaders: React.FC<TimelineTrackHeadersProps> = ({
           return (
             <div
               key={track.id}
-              className={`h-14 px-2.5 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between transition-colors group relative ${
+              style={{ height: `${trackHeight}px` }}
+              className={`px-2.5 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between transition-colors group relative shrink-0 ${
                 isOver ? 'bg-[var(--kuro-bg-hover)]' : 'bg-[var(--kuro-bg-panel)]'
               }`}
             >
@@ -153,6 +159,13 @@ export const TimelineTrackHeaders: React.FC<TimelineTrackHeadersProps> = ({
                   {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
                 </button>
               </div>
+
+              {/* Bottom Interactive Resize Handle (Extend Layer in Y) */}
+              <div
+                onMouseDown={(e) => onStartResizeTrack(track.id, e)}
+                className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-white/60 z-30 transition-colors"
+                title="Drag up/down to extend layer height (Y)"
+              />
             </div>
           );
         })}

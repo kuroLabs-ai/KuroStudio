@@ -52,9 +52,9 @@ const pendingWaveformPromises = new Map<string, Promise<number[]>>();
 
 /**
  * Generate a realistic procedural acoustic waveform envelope (speech & music patterns)
- * with natural pauses, transients, and varied amplitudes so it never looks like a fake barcode.
+ * with natural pauses, transients, and varied amplitudes so it looks like authentic audio.
  */
-export function generateProceduralWaveform(seedStr: string, count = 120): number[] {
+export function generateProceduralWaveform(seedStr: string, count = 300): number[] {
   let hash = 0;
   for (let i = 0; i < seedStr.length; i++) {
     hash = (hash << 5) - hash + seedStr.charCodeAt(i);
@@ -62,27 +62,27 @@ export function generateProceduralWaveform(seedStr: string, count = 120): number
   }
 
   const peaks: number[] = [];
-  let energy = 0.5;
 
   for (let i = 0; i < count; i++) {
     const t = i / count;
-    // Harmonic variation
-    const wave1 = Math.sin(t * 24 + hash * 0.1);
-    const wave2 = Math.cos(t * 53 + hash * 0.05);
-    const wave3 = Math.sin(t * 9 + hash);
+    // Multi-octave natural variation
+    const slowEnvelope = (Math.sin(t * 18 + hash * 0.05) + 1) * 0.5;
+    const speechCadence = (Math.sin(t * 54 + hash * 0.1) + 1) * 0.5;
+    const fastTransient = (Math.sin(t * 140 + hash * 0.2) + 1) * 0.5;
+    const highJitter = Math.abs(Math.sin(t * 380 + (i % 7)));
 
-    // Natural pauses and speech bursts
-    const cadence = (Math.sin(t * 12 + hash) + 1) / 2;
-    const isPause = cadence < 0.18;
+    // Speech pauses
+    const isPause = slowEnvelope < 0.2 && speechCadence < 0.3;
 
+    let energy: number;
     if (isPause) {
-      energy = Math.max(0.04, energy * 0.7);
+      energy = 0.05 + highJitter * 0.08;
     } else {
-      const raw = Math.abs(wave1 * 0.4 + wave2 * 0.35 + wave3 * 0.25);
-      energy = Math.max(0.08, Math.min(1.0, raw * (0.6 + cadence * 0.4)));
+      energy = 0.15 + slowEnvelope * 0.4 + speechCadence * 0.3 + fastTransient * 0.15;
+      if (i % 11 === 0) energy = Math.min(1.0, energy * 1.35); // Accent peaks
     }
 
-    peaks.push(parseFloat(energy.toFixed(3)));
+    peaks.push(Math.max(0.04, Math.min(0.98, parseFloat(energy.toFixed(3)))));
   }
 
   return peaks;
@@ -91,7 +91,7 @@ export function generateProceduralWaveform(seedStr: string, count = 120): number
 /**
  * Extract real audio peaks from an audio or video blob/URL using Web Audio API
  */
-export async function getRealAudioWaveform(blobUrl: string, assetId: string, count = 160): Promise<number[]> {
+export async function getRealAudioWaveform(blobUrl: string, assetId: string, count = 300): Promise<number[]> {
   if (waveformCache.has(assetId)) {
     return waveformCache.get(assetId)!;
   }
@@ -102,6 +102,10 @@ export async function getRealAudioWaveform(blobUrl: string, assetId: string, cou
 
   const promise = (async () => {
     try {
+      if (!blobUrl || blobUrl.startsWith('title://') || blobUrl.startsWith('freeze://')) {
+        throw new Error('Not an audio/video media asset');
+      }
+
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) {
         throw new Error('Web Audio API not supported');
@@ -113,25 +117,25 @@ export async function getRealAudioWaveform(blobUrl: string, assetId: string, cou
       const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
       const channelData = audioBuffer.getChannelData(0);
-      const step = Math.floor(channelData.length / count);
+      const step = Math.max(1, Math.floor(channelData.length / count));
       const peaks: number[] = [];
 
       for (let i = 0; i < count; i++) {
         let max = 0;
         const start = i * step;
         const end = Math.min(channelData.length, start + step);
-        for (let j = start; j < end; j += 6) {
+        for (let j = start; j < end; j += 4) {
           const val = Math.abs(channelData[j] || 0);
           if (val > max) max = val;
         }
-        peaks.push(Math.min(1.0, parseFloat(max.toFixed(3))));
+        peaks.push(Math.max(0.06, Math.min(1.0, parseFloat(max.toFixed(3)))));
       }
 
       audioCtx.close().catch(() => {});
       waveformCache.set(assetId, peaks);
       return peaks;
     } catch {
-      // Fallback to high-quality procedural acoustic waveform
+      // Fallback to high-density realistic acoustic waveform
       const fallback = generateProceduralWaveform(assetId, count);
       waveformCache.set(assetId, fallback);
       return fallback;
@@ -159,7 +163,8 @@ export async function extractVideoFilmstrip(
   frameCount = 8
 ): Promise<string[]> {
   if (filmstripCache.has(assetId)) {
-    return filmstripCache.get(assetId)!;
+    const cached = filmstripCache.get(assetId)!;
+    if (cached.length > 0) return cached;
   }
 
   if (pendingFilmstripPromises.has(assetId)) {
@@ -169,46 +174,63 @@ export async function extractVideoFilmstrip(
   const promise = (async () => {
     const frames: string[] = [];
     try {
+      if (!blobUrl || blobUrl.startsWith('title://') || blobUrl.startsWith('freeze://')) {
+        return frames;
+      }
+
       const video = document.createElement('video');
-      video.src = blobUrl;
+      video.crossOrigin = 'anonymous';
+      video.preload = 'auto';
       video.muted = true;
       video.playsInline = true;
+      video.src = blobUrl;
 
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolve) => {
         const timer = setTimeout(() => resolve(), 3000);
+        video.onloadeddata = () => {
+          clearTimeout(timer);
+          resolve();
+        };
         video.onloadedmetadata = () => {
           clearTimeout(timer);
           resolve();
         };
         video.onerror = () => {
           clearTimeout(timer);
-          reject();
+          resolve();
         };
       });
 
-      const effectiveDuration = video.duration || durationSec || 5.0;
+      const effectiveDuration =
+        video.duration && Number.isFinite(video.duration) && video.duration > 0
+          ? video.duration
+          : durationSec || 5.0;
+
       const step = effectiveDuration / (frameCount + 1);
 
       const canvas = document.createElement('canvas');
-      canvas.width = 120;
-      canvas.height = 68;
+      canvas.width = 160;
+      canvas.height = 90;
       const ctx = canvas.getContext('2d');
 
       for (let i = 1; i <= frameCount; i++) {
-        const targetTime = i * step;
-        video.currentTime = targetTime;
+        const targetTime = Math.max(0.05, Math.min(effectiveDuration - 0.05, i * step));
+        try {
+          video.currentTime = targetTime;
+          await new Promise<void>((res) => {
+            const t = setTimeout(() => res(), 800);
+            video.onseeked = () => {
+              clearTimeout(t);
+              res();
+            };
+          });
 
-        await new Promise<void>((res) => {
-          const t = setTimeout(() => res(), 1000);
-          video.onseeked = () => {
-            clearTimeout(t);
-            res();
-          };
-        });
-
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          frames.push(canvas.toDataURL('image/jpeg', 0.65));
+          if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            frames.push(canvas.toDataURL('image/jpeg', 0.8));
+          }
+        } catch {
+          // ignore frame failure, continue
         }
       }
 

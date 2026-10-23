@@ -59,6 +59,8 @@ export interface TimelineViewportProps {
   videoTracksCount: number;
   audioTracksCount: number;
   totalDurationSec: number;
+  getTrackHeight: (trackId: string) => number;
+  onStartResizeTrack: (trackId: string, e: React.MouseEvent) => void;
   onScrubPlayhead: (ticks: number) => void;
   onSelectClip: (clipId: string, multiSelect?: boolean) => void;
   onClearSelection: () => void;
@@ -100,6 +102,71 @@ export interface TimelineViewportProps {
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
 }
 
+// ─── Crisp Acoustic Waveform Canvas Component ────────────────────────────────
+export const WaveformCanvas: React.FC<{
+  peaks: number[];
+  color?: string;
+  isAudioTrack?: boolean;
+  className?: string;
+}> = ({ peaks, color = '#22c55e', isAudioTrack = false, className = '' }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (width <= 0 || height <= 0) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.scale(dpr, dpr);
+
+    ctx.clearRect(0, 0, width, height);
+
+    if (peaks.length === 0) return;
+
+    // Draw realistic vertical waveform bars (2px bars with 1px gap, non-distorting)
+    const barWidth = 2;
+    const barGap = 1;
+    const totalBars = Math.floor(width / (barWidth + barGap));
+    if (totalBars <= 0) return;
+
+    const step = (peaks.length - 1) / Math.max(1, totalBars - 1);
+
+    ctx.fillStyle = color;
+
+    if (isAudioTrack) {
+      // Mirrored acoustic waveform from center line (for audio track)
+      const centerY = height / 2;
+      for (let i = 0; i < totalBars; i++) {
+        const peakIdx = Math.min(peaks.length - 1, Math.floor(i * step));
+        const val = peaks[peakIdx] ?? 0.2;
+        const barH = Math.max(2, val * (height * 0.92));
+        const x = i * (barWidth + barGap);
+        const y = centerY - barH / 2;
+        ctx.fillRect(x, y, barWidth, barH);
+      }
+    } else {
+      // Video track: bottom acoustic waveform with dynamic peak heights
+      for (let i = 0; i < totalBars; i++) {
+        const peakIdx = Math.min(peaks.length - 1, Math.floor(i * step));
+        const val = peaks[peakIdx] ?? 0.2;
+        const barH = Math.max(3, val * (height - 2));
+        const x = i * (barWidth + barGap);
+        const y = height - barH;
+        ctx.fillRect(x, y, barWidth, barH);
+      }
+    }
+  }, [peaks, color, isAudioTrack]);
+
+  return <canvas ref={canvasRef} className={`w-full h-full pointer-events-none ${className}`} />;
+};
+
 // ─── Individual Clip Component with Real Waveforms & Filmstrip ────────────────
 const TimelineClipItem: React.FC<{
   clip: Clip;
@@ -108,6 +175,7 @@ const TimelineClipItem: React.FC<{
   timelineTimebase: number;
   pixelsPerTick: number;
   pixelsPerSecond: number;
+  trackHeight: number;
   activeTool: TimelineTool;
   isSelected: boolean;
   isBeingMoved: boolean;
@@ -148,6 +216,7 @@ const TimelineClipItem: React.FC<{
   timelineTimebase,
   pixelsPerTick,
   pixelsPerSecond,
+  trackHeight,
   activeTool,
   isSelected,
   isBeingMoved,
@@ -178,7 +247,7 @@ const TimelineClipItem: React.FC<{
     let isMounted = true;
     const targetUrl = blobUrl || asset?.filePath || '';
     if (targetUrl) {
-      getRealAudioWaveform(targetUrl, clip.assetId, 160).then((peaks) => {
+      getRealAudioWaveform(targetUrl, clip.assetId, 300).then((peaks) => {
         if (isMounted) setWavePeaks(peaks);
       });
     }
@@ -193,8 +262,7 @@ const TimelineClipItem: React.FC<{
     let isMounted = true;
     const targetUrl = blobUrl || asset?.filePath || '';
     if (targetUrl && (asset?.type === 'video' || !asset?.type)) {
-      // Calculate how many thumbnails to show based on width (approx 80px per thumb)
-      const targetCount = Math.max(2, Math.min(16, Math.floor(clipWidth / 80)));
+      const targetCount = Math.max(2, Math.min(16, Math.floor(clipWidth / 90)));
       extractVideoFilmstrip(targetUrl, clip.assetId, durationSec, targetCount).then((frames) => {
         if (isMounted && frames.length > 0) {
           setFilmstripFrames(frames);
@@ -210,6 +278,9 @@ const TimelineClipItem: React.FC<{
     clip.speedNumerator && clip.speedDenominator
       ? clip.speedNumerator / clip.speedDenominator
       : 1.0;
+
+  // Height allocated for bottom audio waveform inside video clip
+  const audioWaveformHeight = Math.max(20, Math.min(50, Math.round(trackHeight * 0.35)));
 
   return (
     <div
@@ -256,13 +327,13 @@ const TimelineClipItem: React.FC<{
       }}
       onDragLeave={() => setDragOverClipId(null)}
       onDrop={(e) => onClipDropEffect(clip.id, e)}
-      className={`absolute top-1 bottom-1 rounded border text-xs font-medium transition-all select-none flex flex-col justify-between overflow-hidden shadow-sm z-10 ${
+      className={`absolute top-1 bottom-1.5 rounded border text-xs font-medium transition-all select-none flex flex-col justify-between overflow-hidden shadow-sm z-10 ${
         activeTool === 'razor' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
       } ${
         track.kind === 'video'
           ? 'bg-[var(--kuro-track-video)] text-[var(--kuro-text-primary)] border-[var(--kuro-border-strong)]'
           : 'bg-[var(--kuro-track-audio)] text-[var(--kuro-text-secondary)] border-[var(--kuro-border-base)]'
-      } ${isSelected ? 'ring-2 ring-white border-white brightness-125' : 'hover:brightness-110'} ${
+      } ${isSelected ? 'ring-2 ring-white border-white brightness-125' : 'hover:brightness-105'} ${
         isBeingMoved || isBeingTrimmed
           ? 'opacity-95 ring-2 ring-white scale-[1.01] z-40 shadow-2xl brightness-125'
           : ''
@@ -338,31 +409,36 @@ const TimelineClipItem: React.FC<{
         </div>
       )}
 
-      {/* ── Filmstrip Frames Background for Video Track ── */}
-      {track.kind === 'video' && filmstripFrames.length > 0 && (
-        <div className="absolute inset-0 flex overflow-hidden opacity-35 pointer-events-none filter grayscale">
-          {filmstripFrames.map((frameSrc, idx) => (
-            <img
-              key={idx}
-              src={frameSrc}
-              alt=""
-              className="h-full object-cover shrink-0 border-r border-black/40"
-              style={{ width: `${Math.max(60, clipWidth / filmstripFrames.length)}px` }}
-            />
-          ))}
+      {/* ── Video Filmstrip Pieces / Frames (Full-width visible thumbnails) ── */}
+      {track.kind === 'video' && (
+        <div className="absolute inset-0 flex overflow-hidden pointer-events-none select-none bg-black/60">
+          {filmstripFrames.length > 0 ? (
+            filmstripFrames.map((frameSrc, idx) => (
+              <div
+                key={idx}
+                className="h-full shrink-0 border-r border-black/80 relative overflow-hidden flex items-center justify-center bg-black/80"
+                style={{ width: `${Math.max(64, Math.min(180, clipWidth / filmstripFrames.length))}px` }}
+              >
+                <img src={frameSrc} alt="" className="w-full h-full object-cover opacity-90" />
+              </div>
+            ))
+          ) : asset?.thumbnailPath ? (
+            // Immediate repeated thumbnail pieces so clip is NEVER empty
+            Array.from({ length: Math.max(1, Math.ceil(clipWidth / 110)) }).map((_, idx) => (
+              <div
+                key={idx}
+                className="h-full shrink-0 border-r border-black/80 relative overflow-hidden flex items-center justify-center bg-black/80"
+                style={{ width: '110px' }}
+              >
+                <img src={asset.thumbnailPath} alt="" className="w-full h-full object-cover opacity-90" />
+              </div>
+            ))
+          ) : null}
         </div>
       )}
 
-      {/* Single Thumbnail Fallback if no extracted filmstrip yet */}
-      {track.kind === 'video' && filmstripFrames.length === 0 && asset?.thumbnailPath && (
-        <div
-          className="absolute inset-0 bg-cover bg-center opacity-25 pointer-events-none filter grayscale"
-          style={{ backgroundImage: `url(${asset.thumbnailPath})` }}
-        />
-      )}
-
       {/* ── Clip Top Header Bar with Name, Speed, FX & Human Time ── */}
-      <div className="relative z-10 px-2 py-0.5 flex items-center justify-between text-[11px] truncate font-medium bg-black/65 backdrop-blur-xs pointer-events-none border-b border-white/10">
+      <div className="relative z-10 px-2 py-0.5 flex items-center justify-between text-[11px] truncate font-medium bg-black/75 backdrop-blur-xs pointer-events-none border-b border-white/10 shrink-0">
         <div className="flex items-center gap-1.5 truncate">
           <MoveHorizontal className="w-2.5 h-2.5 opacity-60 shrink-0" />
           <span className="truncate font-semibold tracking-tight">{asset?.name ?? clip.id}</span>
@@ -387,58 +463,19 @@ const TimelineClipItem: React.FC<{
       </div>
 
       {/* ── Realistic Audio Waveform ── */}
-      {/* For Audio tracks: full-height mirrored waveform. For Video tracks: bottom audio strip */}
-      <div
-        className={`relative z-10 px-1 flex items-center pointer-events-none ${
-          track.kind === 'audio' ? 'flex-1 py-1' : 'h-3.5 pb-0.5 bg-black/40'
-        }`}
-      >
-        {wavePeaks.length > 0 && (
-          <svg
-            className="w-full h-full"
-            preserveAspectRatio="none"
-            viewBox={`0 0 ${wavePeaks.length} 100`}
-          >
-            {track.kind === 'audio' ? (
-              // Mirrored acoustic waveform for dedicated audio track
-              wavePeaks.map((peak, idx) => {
-                const barHeight = Math.max(6, peak * 90);
-                const y = (100 - barHeight) / 2;
-                return (
-                  <rect
-                    key={idx}
-                    x={idx}
-                    y={y}
-                    width={0.75}
-                    height={barHeight}
-                    fill="currentColor"
-                    opacity={0.6 + peak * 0.4}
-                    rx={0.3}
-                  />
-                );
-              })
-            ) : (
-              // Audio bottom strip for video track
-              wavePeaks.map((peak, idx) => {
-                const barHeight = Math.max(10, peak * 85);
-                const y = 100 - barHeight;
-                return (
-                  <rect
-                    key={idx}
-                    x={idx}
-                    y={y}
-                    width={0.7}
-                    height={barHeight}
-                    fill="#ffffff"
-                    opacity={0.5 + peak * 0.4}
-                    rx={0.3}
-                  />
-                );
-              })
-            )}
-          </svg>
-        )}
-      </div>
+      {/* For Audio tracks: full-height mirrored waveform. For Video tracks: bottom acoustic wave strip */}
+      {track.kind === 'audio' ? (
+        <div className="relative z-10 flex-1 px-1 py-1 flex items-center bg-black/30 pointer-events-none">
+          <WaveformCanvas peaks={wavePeaks} color="#38bdf8" isAudioTrack={true} />
+        </div>
+      ) : (
+        <div
+          style={{ height: `${audioWaveformHeight}px` }}
+          className="relative z-10 px-1 pb-0.5 bg-black/70 backdrop-blur-xs border-t border-black/60 pointer-events-none shrink-0 flex items-end"
+        >
+          <WaveformCanvas peaks={wavePeaks} color="#4ade80" isAudioTrack={false} />
+        </div>
+      )}
     </div>
   );
 };
@@ -467,6 +504,8 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
   videoTracksCount,
   audioTracksCount,
   totalDurationSec,
+  getTrackHeight,
+  onStartResizeTrack,
   onScrubPlayhead,
   onSelectClip,
   onClearSelection,
@@ -504,11 +543,9 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
     let majorIntervalSec = 5;
     let minorIntervalSec = 1;
 
-    // Formatting based on scale
     let formatTick = (sec: number) => formatTimecodeClock(sec);
 
     if (pixelsPerSecond >= 250) {
-      // Extreme zoom in: show frames! (e.g. 5f or 10f)
       const fps = 30;
       const frameStep = 5;
       majorIntervalSec = frameStep / fps;
@@ -540,17 +577,14 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
       minorIntervalSec = 10;
       formatTick = (sec: number) => formatTimecodeClock(sec);
     } else if (pixelsPerSecond >= 1.5) {
-      // Zoomed out: 1 minute ticks
       majorIntervalSec = 60;
       minorIntervalSec = 15;
       formatTick = (sec: number) => formatTimecodeClock(sec);
     } else if (pixelsPerSecond >= 0.5) {
-      // Zoomed out more: 5 minute ticks
       majorIntervalSec = 300;
       minorIntervalSec = 60;
       formatTick = (sec: number) => formatTimecodeClock(sec);
     } else {
-      // Ultra zoom out: 15 to 30 minute ticks
       majorIntervalSec = 900;
       minorIntervalSec = 180;
       formatTick = (sec: number) => formatTimecodeClock(sec);
@@ -800,7 +834,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
           </div>
         </div>
 
-        {/* ── Track Clip Lanes in Stacking Order ── */}
+        {/* ── Track Clip Lanes in Stacking Order (Dynamic Height in Y) ── */}
         {tracks.map((track) => {
           const sortedClips = [...track.clips].sort((a, b) => a.timelineStartTicks - b.timelineStartTicks);
           const isTrackOver = dragOverTrackId === track.id;
@@ -808,6 +842,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
           const isMainAudio = track.id === mainAudioTrack?.id;
           const isOverlay = track.kind === 'video' && !isMainVideo;
           const isClipTargetingThisTrack = movingClip?.targetTrackId === track.id;
+          const trackHeight = getTrackHeight(track.id);
 
           return (
             <div
@@ -815,6 +850,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
               data-track-lane="true"
               data-track-id={track.id}
               data-track-kind={track.kind}
+              style={{ height: `${trackHeight}px` }}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -823,7 +859,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
               }}
               onDragLeave={() => setDragOverTrackId(null)}
               onDrop={(e) => onTrackDrop(track.id, e)}
-              className={`h-14 border-b border-[var(--kuro-border-subtle)] relative transition-colors ${
+              className={`border-b border-[var(--kuro-border-subtle)] relative transition-colors shrink-0 ${
                 isTrackOver || isClipTargetingThisTrack
                   ? 'bg-[var(--kuro-bg-hover)] ring-1 ring-inset ring-white/50'
                   : isMainVideo
@@ -861,7 +897,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
                   return (
                     <div
                       key={`ghost_${clip.id}`}
-                      className="absolute top-1 bottom-1 rounded border border-dashed border-white/40 bg-white/5 text-[10px] flex items-center justify-center text-white/50 font-mono pointer-events-none"
+                      className="absolute top-1 bottom-1.5 rounded border border-dashed border-white/40 bg-white/5 text-[10px] flex items-center justify-center text-white/50 font-mono pointer-events-none"
                       style={{ left: `${origLeft}px`, width: `${clipW}px` }}
                     >
                       Moving to Layer
@@ -878,6 +914,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
                     timelineTimebase={timelineTimebase}
                     pixelsPerTick={pixelsPerTick}
                     pixelsPerSecond={pixelsPerSecond}
+                    trackHeight={trackHeight}
                     activeTool={activeTool}
                     isSelected={isSelected}
                     isBeingMoved={isBeingMoved}
@@ -901,7 +938,7 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
                 movingClip.targetTrackId === track.id &&
                 movingClip.originalTrackId !== track.id && (
                   <div
-                    className={`absolute top-1 bottom-1 rounded border-2 border-white ring-2 ring-white/50 text-xs font-medium z-40 shadow-2xl flex flex-col justify-between overflow-hidden scale-[1.02] ${
+                    className={`absolute top-1 bottom-1.5 rounded border-2 border-white ring-2 ring-white/50 text-xs font-medium z-40 shadow-2xl flex flex-col justify-between overflow-hidden scale-[1.02] ${
                       track.kind === 'video'
                         ? 'bg-[var(--kuro-track-video)] text-white'
                         : 'bg-[var(--kuro-track-audio)] text-white'
@@ -1040,6 +1077,13 @@ export const TimelineViewport: React.FC<TimelineViewportProps> = ({
                     </div>
                   );
                 })}
+
+              {/* Bottom Interactive Resize Handle (Extend Layer in Y) */}
+              <div
+                onMouseDown={(e) => onStartResizeTrack(track.id, e)}
+                className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-white/60 z-30 transition-colors"
+                title="Drag up/down to extend layer height (Y)"
+              />
             </div>
           );
         })}
