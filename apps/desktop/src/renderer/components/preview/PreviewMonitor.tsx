@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { layoutStore } from '../../stores/useLayoutStore';
@@ -24,20 +24,18 @@ export const PreviewMonitor: React.FC = () => {
   const [previewQuality, setPreviewQuality] = useState<'1080p' | '720p' | '540p'>('1080p');
   const [monitorVolume, setMonitorVolume] = useState(1.0);
   const [isMuted, setIsMuted] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
-  // Track which blobUrl the video element is currently loaded with
-  const loadedBlobUrlRef = useRef<string | null>(null);
-  // Flag to prevent seek loops: true while we are seeking programmatically
-  const isSyncSeekingRef = useRef(false);
 
-  // Subscribe to all stores so the component re-renders on every change
+  // Pool of HTMLVideoElements for video tracks
+  const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+  // Pool of HTMLAudioElements for dedicated audio tracks
+  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+
+  // Subscribe to all stores
   useEffect(() => {
     const unsubEditor = editorStore.subscribe(() => setTick((t) => t + 1));
     const unsubTimeline = timelineStore.subscribe(() => setTick((t) => t + 1));
     const unsubLayout = layoutStore.subscribe(() => setTick((t) => t + 1));
 
-    // Init the global clock with the project timebase
     const proj = editorStore.getProject();
     timelineStore.initClock(proj.timelineTimebase, 0);
 
@@ -48,9 +46,15 @@ export const PreviewMonitor: React.FC = () => {
     };
   }, []);
 
-  // Cleanup audio elements on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
+      videoRefs.current.forEach((el) => {
+        el.pause();
+        el.src = '';
+      });
+      videoRefs.current.clear();
+
       audioElementsRef.current.forEach((el) => {
         el.pause();
         el.src = '';
@@ -59,84 +63,134 @@ export const PreviewMonitor: React.FC = () => {
     };
   }, []);
 
-  // Derived state from stores (computed fresh every render)
   const project = editorStore.getProject();
   const playheadTicks = timelineStore.getPlayheadTicks();
   const isPlaying = timelineStore.getIsPlaying();
   const selectedClipIds = timelineStore.getSelectedClipIds();
 
-  // ─── Active video clip resolution ──────────────────────────────────────────
-  // Find the highest-priority video clip at the current playhead position.
-  let activeClip: (typeof project.tracks[0]['clips'][0]) | undefined = undefined;
-  let activeVideoTrack: (typeof project.tracks[0]) | undefined = undefined;
+  // ─── Multi-Layer Visual Compositing ─────────────────────────────────────────
+  // Find all active clips across ALL video tracks at the current playhead.
+  // Order layers from bottom (V1: Main Video) to top (V2, V3 Overlay) so overlays render on top!
+  const activeVisualLayers = useMemo(() => {
+    const vTracks = project.tracks.filter((t) => t.kind === 'video');
+    const mainV = vTracks[vTracks.length - 1] ?? vTracks[0];
+    const overlays = vTracks.filter((t) => t.id !== mainV?.id).reverse(); // V2 below V3
+    const orderedVideoTracks = [
+      ...(mainV ? [mainV] : []),
+      ...overlays,
+    ];
 
-  for (const track of project.tracks) {
-    if (track.kind === 'video' && !track.muted && !track.hidden) {
-      const hit = track.clips.find(
-        (c) =>
-          playheadTicks >= c.timelineStartTicks &&
-          playheadTicks < c.timelineStartTicks + c.durationTicks
-      );
-      if (hit) {
-        activeClip = hit;
-        activeVideoTrack = track;
-        break;
-      }
-    }
-  }
+    return orderedVideoTracks
+      .filter((t) => !t.hidden)
+      .map((track, layerIdx) => {
+        let clip = track.clips.find(
+          (c) =>
+            playheadTicks >= c.timelineStartTicks &&
+            playheadTicks < c.timelineStartTicks + c.durationTicks
+        );
 
-  // Fallback: show the selected clip even if playhead is not on it
-  if (!activeClip && selectedClipIds[0]) {
-    for (const track of project.tracks) {
-      const found = track.clips.find((c) => c.id === selectedClipIds[0]);
-      if (found) {
-        activeClip = found;
-        activeVideoTrack = track;
-        break;
-      }
-    }
-  }
+        // Fallback: if no clip at playhead on this track, but it's selected, show it
+        if (!clip && selectedClipIds.length > 0) {
+          const found = track.clips.find((c) => selectedClipIds.includes(c.id));
+          if (found) clip = found;
+        }
 
-  const activeAsset = activeClip
-    ? project.assets.find((a) => a.id === activeClip!.assetId)
-    : undefined;
+        if (!clip) return null;
 
-  const activeBlobUrl = (activeAsset?.metadata as Record<string, unknown> | undefined)
-    ?.['blobUrl'] as string | undefined;
+        const asset = project.assets.find((a) => a.id === clip!.assetId);
+        const blobUrl = (asset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'] as string | undefined;
+        const isTitle = !!(asset?.metadata as Record<string, unknown> | undefined)?.['isTitle'];
+        const titleText = (asset?.metadata as Record<string, unknown> | undefined)?.['text'] as string | undefined;
+        const isImage =
+          asset?.type === 'image' ||
+          (blobUrl ? /\.(png|jpe?g|webp|svg|gif|bmp)$/i.test(asset?.filePath || asset?.name || '') : false);
 
-  // ─── HTML5 video element source management ─────────────────────────────────
+        return {
+          track,
+          clip,
+          asset,
+          blobUrl,
+          isTitle,
+          titleText: titleText || asset?.name || 'TITLE',
+          isImage,
+          isVideo: !!blobUrl && !isImage && !isTitle,
+          isMainTrack: track.id === mainV?.id,
+          layerIndex: layerIdx,
+        };
+      })
+      .filter(Boolean) as Array<{
+        track: (typeof project.tracks)[0];
+        clip: (typeof project.tracks)[0]['clips'][0];
+        asset?: (typeof project.assets)[0];
+        blobUrl?: string;
+        isTitle: boolean;
+        titleText: string;
+        isImage: boolean;
+        isVideo: boolean;
+        isMainTrack: boolean;
+        layerIndex: number;
+      }>;
+  }, [project.tracks, project.assets, playheadTicks, selectedClipIds]);
+
+  // ─── Synchronize All Video Elements Across Layers ───────────────────────────
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+    const videoMap = videoRefs.current;
+    const activeVideoTrackIds = new Set<string>();
 
-    const newSrc = activeBlobUrl ?? '';
+    for (const layer of activeVisualLayers) {
+      if (!layer.isVideo || !layer.blobUrl) continue;
+      activeVideoTrackIds.add(layer.track.id);
 
-    if (newSrc !== (loadedBlobUrlRef.current ?? '')) {
-      loadedBlobUrlRef.current = newSrc || null;
-      video.src = newSrc;
-      if (newSrc) {
-        video.load();
+      const el = videoMap.get(layer.track.id);
+      if (!el) continue;
+
+      // Ensure correct source
+      if (el.src !== layer.blobUrl) {
+        el.src = layer.blobUrl;
+        el.load();
+      }
+
+      // Audio volume & mute for this video track
+      const clipVolume = layer.clip.audio?.volume ?? 1.0;
+      el.volume = Math.max(0, Math.min(1, monitorVolume * clipVolume));
+      el.muted = isMuted || !!layer.track.muted;
+
+      const clipOffsetSec = (playheadTicks - layer.clip.timelineStartTicks) / project.timelineTimebase;
+      const targetTime = Math.max(0, clipOffsetSec);
+
+      if (isPlaying) {
+        // Sync seek if drifting by > 0.25s
+        if (Math.abs(el.currentTime - targetTime) > 0.25) {
+          el.currentTime = targetTime;
+        }
+        if (el.paused) {
+          el.play().catch(() => {});
+        }
+      } else {
+        if (!el.paused) {
+          el.pause();
+        }
+        if (Math.abs(el.currentTime - targetTime) > 0.04) {
+          el.currentTime = targetTime;
+        }
       }
     }
-  }, [activeBlobUrl]);
 
-  // ─── Video volume and mute synchronization ─────────────────────────────────
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.volume = monitorVolume;
-    video.muted = isMuted || !!activeVideoTrack?.muted;
-  }, [monitorVolume, isMuted, activeVideoTrack?.muted]);
+    // Pause videos for tracks that no longer have an active video clip
+    videoMap.forEach((el, trackId) => {
+      if (!activeVideoTrackIds.has(trackId)) {
+        if (!el.paused) el.pause();
+      }
+    });
+  }, [activeVisualLayers, isPlaying, playheadTicks, monitorVolume, isMuted, project.timelineTimebase]);
 
-  // ─── Multi-Track Audio Playback Synchronization ─────────────────────────────
-  // Finds all active audio clips on audio tracks at the current playhead
+  // ─── Multi-Track Audio Playback (A1, A2, Background Music, SFX) ────────────
   const activeAudioItems = useMemo(() => {
     const list: Array<{
       track: (typeof project.tracks)[0];
       clip: (typeof project.tracks)[0]['clips'][0];
       asset?: (typeof project.assets)[0];
       blobUrl?: string;
-      synthesizeType?: string;
     }> = [];
 
     for (const track of project.tracks) {
@@ -147,13 +201,11 @@ export const PreviewMonitor: React.FC = () => {
         if (clip) {
           const asset = project.assets.find((a) => a.id === clip.assetId);
           const blobUrl = (asset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'] as string | undefined;
-          const synthesizeType = (asset?.metadata as Record<string, unknown> | undefined)?.['synthesizeType'] as string | undefined;
           list.push({
             track,
             clip,
             asset,
             blobUrl,
-            synthesizeType,
           });
         }
       }
@@ -161,7 +213,7 @@ export const PreviewMonitor: React.FC = () => {
     return list;
   }, [project.tracks, project.assets, playheadTicks]);
 
-  // Sync Audio Elements for all audio tracks simultaneously
+  // Sync Audio Elements for all audio tracks simultaneously with video
   useEffect(() => {
     const audioMap = audioElementsRef.current;
     const activeTrackIds = new Set<string>();
@@ -190,7 +242,7 @@ export const PreviewMonitor: React.FC = () => {
       const targetTime = Math.max(0, clipOffsetSec);
 
       if (isPlaying) {
-        if (Math.abs(el.currentTime - targetTime) > 0.2) {
+        if (Math.abs(el.currentTime - targetTime) > 0.25) {
           el.currentTime = targetTime;
         }
         if (el.paused) {
@@ -200,15 +252,15 @@ export const PreviewMonitor: React.FC = () => {
         if (!el.paused) {
           el.pause();
         }
-        if (Math.abs(el.currentTime - targetTime) > 0.05) {
+        if (Math.abs(el.currentTime - targetTime) > 0.04) {
           el.currentTime = targetTime;
         }
       }
     }
 
-    // Pause audio on tracks that have no active clip or when not playing
+    // Pause audio on tracks that have no active clip
     audioMap.forEach((el, trackId) => {
-      if (!activeTrackIds.has(trackId) || !isPlaying) {
+      if (!activeTrackIds.has(trackId)) {
         if (!el.paused) {
           el.pause();
         }
@@ -216,68 +268,17 @@ export const PreviewMonitor: React.FC = () => {
     });
   }, [activeAudioItems, isPlaying, playheadTicks, monitorVolume, isMuted, project.timelineTimebase]);
 
-  // ─── Play / Pause sync for Video ───────────────────────────────────────────
+  // Stop playback when playhead reaches end of entire project
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !activeBlobUrl) return;
-
-    if (isPlaying) {
-      if (video.paused) {
-        video.play().catch(() => {});
-      }
-    } else {
-      if (!video.paused) {
-        video.pause();
-      }
-    }
-  }, [isPlaying, activeBlobUrl]);
-
-  // ─── Seek sync: playhead → video currentTime ───────────────────────────────
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !activeClip || !activeBlobUrl) return;
-
-    const clipOffsetSec = (playheadTicks - activeClip.timelineStartTicks) / project.timelineTimebase;
-    const clampedOffset = Math.max(0, clipOffsetSec);
-
-    // Only force-seek when NOT playing (scrubbing) or when drift is large (>0.35s)
-    const drift = Math.abs(video.currentTime - clampedOffset);
-    if (!isPlaying || drift > 0.35) {
-      isSyncSeekingRef.current = true;
-      video.currentTime = clampedOffset;
-    }
-  }, [playheadTicks, activeClip?.id, activeBlobUrl, isPlaying, project.timelineTimebase]);
-
-  // ─── Video drift correction ────────────────────────────────────────────────
-  const handleVideoTimeUpdate = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || !activeClip || isSyncSeekingRef.current) return;
-    if (!timelineStore.getIsPlaying()) return;
-
-    const videoTicks = Math.round(
-      activeClip.timelineStartTicks + video.currentTime * project.timelineTimebase
-    );
-    // If video significantly drifts by more than 0.35s, resync store
-    const diff = Math.abs(videoTicks - timelineStore.getPlayheadTicks());
-    if (diff > project.timelineTimebase * 0.35) {
-      timelineStore.setPlayheadTicks(videoTicks);
-    }
-  }, [activeClip, project.timelineTimebase]);
-
-  const handleVideoSeeked = useCallback(() => {
-    isSyncSeekingRef.current = false;
-  }, []);
-
-  const handleVideoEnded = useCallback(() => {
-    // Only stop playback if we reached the end of the entire timeline
+    if (!isPlaying) return;
     const totalTicks = project.tracks.reduce(
       (max, t) => t.clips.reduce((m, c) => Math.max(m, c.timelineStartTicks + c.durationTicks), max),
       0
     );
-    if (timelineStore.getPlayheadTicks() >= totalTicks) {
+    if (totalTicks > 0 && playheadTicks >= totalTicks) {
       timelineStore.setIsPlaying(false);
     }
-  }, [project.tracks]);
+  }, [playheadTicks, isPlaying, project.tracks]);
 
   // ─── Timecode & transport ──────────────────────────────────────────────────
   const timecode = formatTimecode(playheadTicks, {
@@ -313,6 +314,9 @@ export const PreviewMonitor: React.FC = () => {
 
   const isEmpty = project.tracks.every((t) => t.clips.length === 0);
 
+  // Active clip asset name for header label
+  const primaryActiveAsset = activeVisualLayers[activeVisualLayers.length - 1]?.asset;
+
   return (
     <div className="h-full flex flex-col bg-[var(--kuro-bg-canvas)] select-none overflow-hidden transition-colors">
       {/* Top Monitor Strip */}
@@ -323,9 +327,14 @@ export const PreviewMonitor: React.FC = () => {
           <span className="text-[10px] bg-[var(--kuro-bg-surface)] text-[var(--kuro-text-muted)] px-1.5 py-0.5 rounded font-mono border border-[var(--kuro-border-subtle)] shrink-0">
             {project.width}×{project.height}
           </span>
-          {activeAsset && (
+          {activeVisualLayers.length > 0 && (
+            <span className="text-[10px] bg-white text-black font-bold px-1.5 py-0.2 rounded font-mono shrink-0">
+              {activeVisualLayers.length} {activeVisualLayers.length === 1 ? 'LAYER' : 'LAYERS'}
+            </span>
+          )}
+          {primaryActiveAsset && (
             <span className="text-[10px] text-[var(--kuro-text-secondary)] font-medium truncate">
-              · {activeAsset.name}
+              · {primaryActiveAsset.name}
             </span>
           )}
         </div>
@@ -388,7 +397,7 @@ export const PreviewMonitor: React.FC = () => {
         </div>
       </div>
 
-      {/* Video Viewport Area */}
+      {/* ── Multi-Layer Composited Viewport ── */}
       <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-2 relative overflow-hidden bg-[var(--kuro-bg-canvas)]">
         <div
           className="relative rounded border border-[var(--kuro-border-subtle)] shadow-2xl overflow-hidden bg-black"
@@ -400,39 +409,12 @@ export const PreviewMonitor: React.FC = () => {
             height: 'auto',
           }}
         >
-          {/* Main Video Element */}
-          <video
-            ref={videoRef}
-            className={`w-full h-full object-contain pointer-events-none absolute inset-0 ${
-              activeBlobUrl && activeAsset?.type !== 'image' ? 'opacity-100' : 'opacity-0'
-            }`}
-            playsInline
-            onTimeUpdate={handleVideoTimeUpdate}
-            onSeeked={handleVideoSeeked}
-            onEnded={handleVideoEnded}
-          />
+          {/* Base Black Background Layer */}
+          <div className="w-full h-full bg-black absolute inset-0 pointer-events-none" />
 
-          {/* Image Overlay */}
-          {activeBlobUrl && activeAsset?.type === 'image' && (
-            <img
-              src={activeBlobUrl}
-              alt={activeAsset.name}
-              className="w-full h-full object-contain pointer-events-none absolute inset-0"
-            />
-          )}
-
-          {/* Title Card Overlay */}
-          {!activeBlobUrl && activeAsset?.metadata?.['isTitle'] && (
-            <div className="w-full h-full bg-black flex items-center justify-center p-8 absolute inset-0">
-              <span className="text-white text-2xl font-bold tracking-wider drop-shadow-lg text-center uppercase">
-                {(activeAsset.metadata['text'] as string) || activeAsset.name}
-              </span>
-            </div>
-          )}
-
-          {/* Pure black when no clip at playhead */}
-          {!activeClip && (
-            <div className="w-full h-full bg-black absolute inset-0 flex items-center justify-center">
+          {/* Empty Timeline Prompt */}
+          {activeVisualLayers.length === 0 && (
+            <div className="w-full h-full absolute inset-0 flex items-center justify-center pointer-events-none z-0">
               {isEmpty && (
                 <span className="text-white/20 text-[10px] font-mono tracking-widest uppercase select-none text-center px-4">
                   Import media · drag clips to timeline · press Play
@@ -441,19 +423,80 @@ export const PreviewMonitor: React.FC = () => {
             </div>
           )}
 
-          {/* Progress bar at the bottom of the viewport */}
+          {/* Render All Active Layers Stacked in Z-Index Order */}
+          {activeVisualLayers.map((layer) => {
+            const zIndex = layer.layerIndex * 10 + 1;
+
+            // 1. Video Layer (V1 or Overlay Video)
+            if (layer.isVideo) {
+              return (
+                <video
+                  key={layer.track.id}
+                  ref={(el) => {
+                    if (el) videoRefs.current.set(layer.track.id, el);
+                    else videoRefs.current.delete(layer.track.id);
+                  }}
+                  playsInline
+                  className={`pointer-events-none absolute ${
+                    layer.isMainTrack
+                      ? 'inset-0 w-full h-full object-contain'
+                      : 'inset-4 max-w-[80%] max-h-[80%] m-auto object-contain shadow-2xl border border-white/20 rounded'
+                  }`}
+                  style={{ zIndex }}
+                />
+              );
+            }
+
+            // 2. Photo / Image Layer (V1 Photo or V2 Overlay Photo)
+            if (layer.isImage && layer.blobUrl) {
+              return (
+                <img
+                  key={layer.clip.id}
+                  src={layer.blobUrl}
+                  alt={layer.asset?.name || 'Image'}
+                  className={`pointer-events-none absolute select-none ${
+                    layer.isMainTrack
+                      ? 'inset-0 w-full h-full object-contain'
+                      : 'inset-6 max-w-[75%] max-h-[75%] m-auto object-contain drop-shadow-[0_20px_25px_rgba(0,0,0,0.8)] border border-white/30 rounded shadow-2xl'
+                  }`}
+                  style={{ zIndex }}
+                />
+              );
+            }
+
+            // 3. Text / Title Layer (Overlay on Top of Everything)
+            if (layer.isTitle) {
+              return (
+                <div
+                  key={layer.clip.id}
+                  className="absolute inset-0 flex flex-col items-center justify-center p-8 select-none pointer-events-none"
+                  style={{ zIndex }}
+                >
+                  <div className="bg-black/65 px-6 py-2.5 rounded-lg border border-white/30 shadow-2xl backdrop-blur-xs">
+                    <span className="text-white text-2xl font-black tracking-wider uppercase text-center block drop-shadow-lg">
+                      {layer.titleText}
+                    </span>
+                  </div>
+                </div>
+              );
+            }
+
+            return null;
+          })}
+
+          {/* Progress bar at the bottom */}
           {totalTicks > 0 && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/10">
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/10 z-50 pointer-events-none">
               <div
-                className="h-full bg-white/50 transition-none"
+                className="h-full bg-white/60 transition-none"
                 style={{ width: `${Math.min(100, (playheadTicks / totalTicks) * 100)}%` }}
               />
             </div>
           )}
 
-          {/* Safe margins overlay */}
+          {/* Safe Margins Overlay */}
           {showSafeGuides && (
-            <div className="absolute inset-[8%] border border-dashed border-white/30 pointer-events-none flex items-center justify-center">
+            <div className="absolute inset-[8%] border border-dashed border-white/30 pointer-events-none flex items-center justify-center z-50">
               <div className="w-3 h-3 border-t border-l border-white/60 absolute top-0 left-0" />
               <div className="w-3 h-3 border-t border-r border-white/60 absolute top-0 right-0" />
               <div className="w-3 h-3 border-b border-l border-white/60 absolute bottom-0 left-0" />
@@ -466,7 +509,7 @@ export const PreviewMonitor: React.FC = () => {
 
           {/* Playing indicator */}
           {isPlaying && (
-            <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-white animate-pulse shadow pointer-events-none" />
+            <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-white animate-pulse shadow pointer-events-none z-50" />
           )}
         </div>
       </div>
