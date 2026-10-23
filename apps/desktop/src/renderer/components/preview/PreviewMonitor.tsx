@@ -166,6 +166,8 @@ export const PreviewMonitor: React.FC = () => {
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   // Pool of HTMLAudioElements for dedicated audio tracks
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  // Track pending play() promise per element ID to avoid AbortError on rapid stop->play
+  const pendingPlayRef = useRef<Map<string, Promise<void>>>(new Map());
 
   // Subscribe to all stores
   useEffect(() => {
@@ -174,7 +176,11 @@ export const PreviewMonitor: React.FC = () => {
     const unsubLayout = layoutStore.subscribe(() => setTick((t) => t + 1));
 
     const proj = editorStore.getProject();
-    timelineStore.initClock(proj.timelineTimebase, 0);
+    const initTotalTicks = proj.tracks.reduce(
+      (max, t) => t.clips.reduce((m, c) => Math.max(m, c.timelineStartTicks + c.durationTicks), max),
+      0
+    );
+    timelineStore.initClock(proj.timelineTimebase, initTotalTicks);
 
     return () => {
       unsubEditor();
@@ -381,14 +387,25 @@ export const PreviewMonitor: React.FC = () => {
           el.currentTime = targetTime;
         }
         if (el.paused) {
-          el.play().catch(() => {});
+          const playKey = `vid-${state.track.id}`;
+          const pending = pendingPlayRef.current.get(playKey);
+          const doPlay = () => {
+            const p = el.play().catch(() => {});
+            pendingPlayRef.current.set(playKey, p);
+            p.finally(() => pendingPlayRef.current.delete(playKey));
+          };
+          if (pending) {
+            pending.then(doPlay).catch(doPlay);
+          } else {
+            doPlay();
+          }
         }
       } else {
         if (!el.paused) {
           el.pause();
         }
         if (Math.abs(el.currentTime - targetTime) > 0.04) {
-          el.currentTime = targetTime;
+          try { el.currentTime = targetTime; } catch { /* ignore */ }
         }
       }
     }
@@ -464,14 +481,25 @@ export const PreviewMonitor: React.FC = () => {
           el.currentTime = targetTime;
         }
         if (el.paused) {
-          el.play().catch(() => {});
+          const playKey = `aud-${item.track.id}`;
+          const pending = pendingPlayRef.current.get(playKey);
+          const doPlay = () => {
+            const p = el!.play().catch(() => {});
+            pendingPlayRef.current.set(playKey, p);
+            p.finally(() => pendingPlayRef.current.delete(playKey));
+          };
+          if (pending) {
+            pending.then(doPlay).catch(doPlay);
+          } else {
+            doPlay();
+          }
         }
       } else {
         if (!el.paused) {
           el.pause();
         }
         if (Math.abs(el.currentTime - targetTime) > 0.04) {
-          el.currentTime = targetTime;
+          try { el.currentTime = targetTime; } catch { /* ignore */ }
         }
       }
     }
@@ -485,6 +513,15 @@ export const PreviewMonitor: React.FC = () => {
       }
     });
   }, [activeAudioItems, isPlaying, playheadTicks, monitorVolume, isMuted, project.timelineTimebase]);
+
+  // Keep the RAF clock's durationTicks in sync with the actual project length
+  useEffect(() => {
+    const totalTicks = project.tracks.reduce(
+      (max, t) => t.clips.reduce((m, c) => Math.max(m, c.timelineStartTicks + c.durationTicks), max),
+      0
+    );
+    timelineStore.setDurationTicks(totalTicks);
+  }, [project.tracks]);
 
   // Stop playback when playhead reaches end of entire project
   useEffect(() => {

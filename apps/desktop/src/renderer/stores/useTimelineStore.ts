@@ -28,6 +28,11 @@ class TimelineStore {
     this._durationTicks = durationTicks;
   }
 
+  /** Update the total duration so the clock can auto-stop at the right point */
+  public setDurationTicks(durationTicks: number): void {
+    this._durationTicks = Math.max(0, durationTicks);
+  }
+
   /** Must be called whenever isPlaying changes so the rAF loop starts/stops */
   private _syncRaf(): void {
     if (this.isPlaying) {
