@@ -66,15 +66,15 @@ export const PreviewMonitor: React.FC = () => {
   const project = editorStore.getProject();
   const playheadTicks = timelineStore.getPlayheadTicks();
   const isPlaying = timelineStore.getIsPlaying();
-  const selectedClipIds = timelineStore.getSelectedClipIds();
 
-  // ─── Multi-Layer Visual Compositing ─────────────────────────────────────────
-  // Find all active clips across ALL video tracks at the current playhead.
-  // Order layers from bottom (V1: Main Video) to top (V2, V3 Overlay) so overlays render on top!
-  const activeVisualLayers = useMemo(() => {
+  // ─── Compute all video track states at playhead ────────────────────────────
+  // For each video track: what clip (if any) is at the playhead?
+  // allVideoTrackStates covers EVERY video track — active ones get a clip,
+  // inactive ones (gap) get clip = null → renders as hidden / black.
+  const allVideoTrackStates = useMemo(() => {
     const vTracks = project.tracks.filter((t) => t.kind === 'video');
     const mainV = vTracks[vTracks.length - 1] ?? vTracks[0];
-    const overlays = vTracks.filter((t) => t.id !== mainV?.id).reverse(); // V2 below V3
+    const overlays = vTracks.filter((t) => t.id !== mainV?.id).reverse();
     const orderedVideoTracks = [
       ...(mainV ? [mainV] : []),
       ...overlays,
@@ -83,85 +83,86 @@ export const PreviewMonitor: React.FC = () => {
     return orderedVideoTracks
       .filter((t) => !t.hidden)
       .map((track, layerIdx) => {
-        let clip = track.clips.find(
+        // STRICT: only the clip whose range contains playheadTicks (no fallback to selected)
+        const clip = track.clips.find(
           (c) =>
             playheadTicks >= c.timelineStartTicks &&
             playheadTicks < c.timelineStartTicks + c.durationTicks
         );
 
-        // Fallback: if no clip at playhead on this track, but it's selected, show it
-        if (!clip && selectedClipIds.length > 0) {
-          const found = track.clips.find((c) => selectedClipIds.includes(c.id));
-          if (found) clip = found;
-        }
-
-        if (!clip) return null;
-
-        const asset = project.assets.find((a) => a.id === clip!.assetId);
+        const asset = clip ? project.assets.find((a) => a.id === clip.assetId) : undefined;
         const blobUrl = (asset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'] as string | undefined;
         const isTitle = !!(asset?.metadata as Record<string, unknown> | undefined)?.['isTitle'];
         const titleText = (asset?.metadata as Record<string, unknown> | undefined)?.['text'] as string | undefined;
         const isImage =
           asset?.type === 'image' ||
           (blobUrl ? /\.(png|jpe?g|webp|svg|gif|bmp)$/i.test(asset?.filePath || asset?.name || '') : false);
+        const isVideo = !!blobUrl && !isImage && !isTitle;
 
         return {
           track,
-          clip,
-          asset,
+          clip: clip ?? null,           // null = gap at this playhead position
+          hasClip: !!clip,              // whether we're inside a clip or in a gap
+          asset: asset ?? undefined,
           blobUrl,
           isTitle,
           titleText: titleText || asset?.name || 'TITLE',
           isImage,
-          isVideo: !!blobUrl && !isImage && !isTitle,
+          isVideo,
           isMainTrack: track.id === mainV?.id,
           layerIndex: layerIdx,
         };
-      })
-      .filter(Boolean) as Array<{
-        track: (typeof project.tracks)[0];
-        clip: (typeof project.tracks)[0]['clips'][0];
-        asset?: (typeof project.assets)[0];
-        blobUrl?: string;
-        isTitle: boolean;
-        titleText: string;
-        isImage: boolean;
-        isVideo: boolean;
-        isMainTrack: boolean;
-        layerIndex: number;
-      }>;
-  }, [project.tracks, project.assets, playheadTicks, selectedClipIds]);
+      });
+  }, [project.tracks, project.assets, playheadTicks]);
+
+  // activeVisualLayers = only the ones with a clip at playhead (for header count, images, titles)
+  const activeVisualLayers = useMemo(
+    () => allVideoTrackStates.filter((s) => s.hasClip),
+    [allVideoTrackStates]
+  );
 
   // ─── Synchronize All Video Elements Across Layers ───────────────────────────
+  // We iterate allVideoTrackStates (not just activeVisualLayers) because video
+  // elements for ALL tracks are permanently in the DOM now. Tracks in a gap get
+  // paused + seeked-to-0 so they show pure black (no frozen last-frame).
   useEffect(() => {
     const videoMap = videoRefs.current;
-    const activeVideoTrackIds = new Set<string>();
 
-    for (const layer of activeVisualLayers) {
-      if (!layer.isVideo || !layer.blobUrl) continue;
-      activeVideoTrackIds.add(layer.track.id);
-
-      const el = videoMap.get(layer.track.id);
+    for (const state of allVideoTrackStates) {
+      if (!state.isVideo) continue;
+      const el = videoMap.get(state.track.id);
       if (!el) continue;
 
+      if (!state.hasClip || !state.clip || !state.blobUrl) {
+        // Gap: pause and clear to frame 0 → visible as black (element is CSS-hidden anyway)
+        if (!el.paused) el.pause();
+        if (el.currentTime !== 0) {
+          try { el.currentTime = 0; } catch { /* ignore */ }
+        }
+        continue;
+      }
+
+      // Active clip on this track
+      const clip = state.clip;
+
       // Ensure correct source
-      if (el.src !== layer.blobUrl) {
-        el.src = layer.blobUrl;
+      if (el.src !== state.blobUrl) {
+        el.src = state.blobUrl;
         el.load();
       }
 
       // Audio volume & mute for this video track
-      const clipVolume = layer.clip.audio?.volume ?? 1.0;
+      const clipVolume = clip.audio?.volume ?? 1.0;
       el.volume = Math.max(0, Math.min(1, monitorVolume * clipVolume));
-      el.muted = isMuted || !!layer.track.muted;
+      el.muted = isMuted || !!state.track.muted;
 
       const speedRatio =
-        layer.clip.speedNumerator && layer.clip.speedDenominator
-          ? layer.clip.speedNumerator / layer.clip.speedDenominator
+        clip.speedNumerator && clip.speedDenominator
+          ? clip.speedNumerator / clip.speedDenominator
           : 1;
 
-      const sourceInTicks = Number.isFinite(layer.clip.sourceInTicks) ? layer.clip.sourceInTicks : 0;
-      const offsetTicksFromClipStart = playheadTicks - layer.clip.timelineStartTicks;
+      const sourceInTicks = Number.isFinite(clip.sourceInTicks) ? clip.sourceInTicks : 0;
+      const offsetTicksFromClipStart = playheadTicks - clip.timelineStartTicks;
       const sourceOffsetTicks = sourceInTicks + offsetTicksFromClipStart * speedRatio;
       const targetTime = Math.max(0, sourceOffsetTicks / project.timelineTimebase);
 
@@ -183,14 +184,7 @@ export const PreviewMonitor: React.FC = () => {
         }
       }
     }
-
-    // Pause videos for tracks that no longer have an active video clip
-    videoMap.forEach((el, trackId) => {
-      if (!activeVideoTrackIds.has(trackId)) {
-        if (!el.paused) el.pause();
-      }
-    });
-  }, [activeVisualLayers, isPlaying, playheadTicks, monitorVolume, isMuted, project.timelineTimebase]);
+  }, [allVideoTrackStates, isPlaying, playheadTicks, monitorVolume, isMuted, project.timelineTimebase]);
 
   // ─── Multi-Track Audio Playback (A1, A2, Background Music, SFX) ────────────
   const activeAudioItems = useMemo(() => {
@@ -439,29 +433,38 @@ export const PreviewMonitor: React.FC = () => {
             </div>
           )}
 
-          {/* Render All Active Layers Stacked in Z-Index Order */}
+          {/* ─────────────────────────────────────────────────────────────────
+              Render ALL video track elements (always in DOM) but hide them
+              via visibility when the playhead is in a gap on that track.
+              This prevents frozen last-frames showing during gaps.
+              ───────────────────────────────────────────────────────────────── */}
+          {allVideoTrackStates.filter((s) => s.isVideo || s.hasClip).map((state) => {
+            const isVisible = state.hasClip && state.isVideo;
+            const zIndex = state.layerIndex * 10 + 1;
+
+            if (!state.isVideo) return null; // images/titles handled below
+
+            return (
+              <video
+                key={state.track.id}
+                ref={(el) => {
+                  if (el) videoRefs.current.set(state.track.id, el);
+                  else videoRefs.current.delete(state.track.id);
+                }}
+                playsInline
+                className={`pointer-events-none absolute ${
+                  state.isMainTrack
+                    ? 'inset-0 w-full h-full object-contain'
+                    : 'inset-4 max-w-[80%] max-h-[80%] m-auto object-contain shadow-2xl border border-white/20 rounded'
+                }`}
+                style={{ zIndex, visibility: isVisible ? 'visible' : 'hidden' }}
+              />
+            );
+          })}
+
+          {/* Images and Titles: only render when their clip is active (no DOM-persistence needed) */}
           {activeVisualLayers.map((layer) => {
             const zIndex = layer.layerIndex * 10 + 1;
-
-            // 1. Video Layer (V1 or Overlay Video)
-            if (layer.isVideo) {
-              return (
-                <video
-                  key={layer.track.id}
-                  ref={(el) => {
-                    if (el) videoRefs.current.set(layer.track.id, el);
-                    else videoRefs.current.delete(layer.track.id);
-                  }}
-                  playsInline
-                  className={`pointer-events-none absolute ${
-                    layer.isMainTrack
-                      ? 'inset-0 w-full h-full object-contain'
-                      : 'inset-4 max-w-[80%] max-h-[80%] m-auto object-contain shadow-2xl border border-white/20 rounded'
-                  }`}
-                  style={{ zIndex }}
-                />
-              );
-            }
 
             // 2. Photo / Image Layer (V1 Photo or V2 Overlay Photo)
             if (layer.isImage && layer.blobUrl) {
