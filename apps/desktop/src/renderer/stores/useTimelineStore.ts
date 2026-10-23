@@ -2,6 +2,8 @@ import { DEFAULT_TICKS_PER_SECOND, TimelineTicks } from '@kuro/shared';
 
 type Listener = () => void;
 
+export type TimelineTool = 'select' | 'razor';
+
 class TimelineStore {
   private playheadTicks: TimelineTicks = 0;
   private isPlaying = false;
@@ -9,6 +11,7 @@ class TimelineStore {
   private isSnappingEnabled = true;
   private selectedClipIds: string[] = [];
   private selectedTrackId: string | null = null;
+  private activeTool: TimelineTool = 'select';
   private listeners = new Set<Listener>();
 
   // rAF-based global playback clock (advances playhead every frame when playing)
@@ -62,6 +65,15 @@ class TimelineStore {
         this._lastRafTime = null;
       }
     }
+  }
+
+  public getActiveTool(): TimelineTool {
+    return this.activeTool;
+  }
+
+  public setActiveTool(tool: TimelineTool): void {
+    this.activeTool = tool;
+    this.notify();
   }
 
   public getPlayheadTicks(): TimelineTicks {
