@@ -53,13 +53,21 @@ export const InspectorPanel: React.FC = () => {
   }
 
   const asset = selectedClip ? project.assets.find((a) => a.id === selectedClip!.assetId) : undefined;
-  const isTitle = !!(asset?.metadata as Record<string, unknown> | undefined)?.['isTitle'];
+  const isTitle = !!(
+    (asset?.metadata as Record<string, unknown> | undefined)?.['isTitle'] ||
+    asset?.filePath?.startsWith('title://') ||
+    selectedClip?.id?.startsWith('clip_title') ||
+    asset?.id?.startsWith('asset_title')
+  );
   const isAudioTrack = selectedTrack?.kind === 'audio';
 
-  // Automatically switch tab if audio-only or title is selected
+  // Automatically switch tab if title or audio-only is selected
   useEffect(() => {
     if (isTitle) {
       setActiveTab('text');
+      if (!layoutStore.isInspectorVisible()) {
+        layoutStore.toggleInspector();
+      }
     } else if (isAudioTrack && activeTab === 'video') {
       setActiveTab('audio');
     } else if (!isAudioTrack && activeTab === 'text' && !isTitle) {

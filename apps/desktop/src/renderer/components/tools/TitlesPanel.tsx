@@ -3,7 +3,7 @@ import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { AddClipCommand } from '@kuro/editor-core';
 import { generateId } from '@kuro/shared';
-import { Clip } from '@kuro/project-format';
+import { AssetReference, Clip } from '@kuro/project-format';
 import {
   Type,
   Search,
@@ -90,6 +90,35 @@ export const TitlesPanel: React.FC = () => {
     const assetId = generateId('asset_title');
     const clipDurationTicks = Math.round(4.0 * project.timelineTimebase); // 4 seconds default
 
+    const newAsset: AssetReference = {
+      id: assetId,
+      name: preset.name,
+      type: 'video',
+      storageMode: 'linked',
+      filePath: 'title://' + preset.id,
+      fileSizeBytes: 0,
+      durationTicks: clipDurationTicks,
+      metadata: {
+        isTitle: true,
+        text: preset.defaultText,
+        fontSize: preset.category === 'cinematic' ? 36 : preset.category === 'titles' ? 44 : 26,
+        fontFamily: preset.category === 'cinematic' ? 'Georgia' : preset.category === 'titles' ? 'Impact' : 'Inter',
+        textAlign: preset.category === 'lower-thirds' ? 'left' : 'center',
+        isBold: true,
+        textColor: '#ffffff',
+        showBackground: preset.category === 'lower-thirds' || preset.category === 'captions',
+        letterSpacing: preset.category === 'cinematic' ? 6 : 0,
+        textTransform: preset.category === 'cinematic' ? 'uppercase' : 'none',
+        shadowBlur: 8,
+      },
+    };
+
+    const currentProj = editorStore.getProject();
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      assets: [...currentProj.assets, newAsset],
+    });
+
     const newClip: Clip = {
       id: generateId('clip_title'),
       assetId,
@@ -103,7 +132,9 @@ export const TitlesPanel: React.FC = () => {
 
     const cmd = new AddClipCommand(newClip, videoTrack.id);
     const success = await editorStore.executeCommand(cmd);
+    const finalClipId = newClip.id;
     if (success) {
+      timelineStore.selectClip(finalClipId);
       setAddedId(preset.id);
       setTimeout(() => setAddedId(null), 1800);
     } else {
@@ -116,6 +147,7 @@ export const TitlesPanel: React.FC = () => {
       const adjustedClip: Clip = { ...newClip, timelineStartTicks: maxEnd };
       const fallbackCmd = new AddClipCommand(adjustedClip, videoTrack.id);
       await editorStore.executeCommand(fallbackCmd);
+      timelineStore.selectClip(finalClipId);
       setAddedId(preset.id);
       setTimeout(() => setAddedId(null), 1800);
     }
