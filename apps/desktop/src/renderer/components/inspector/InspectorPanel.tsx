@@ -1,20 +1,31 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { layoutStore } from '../../stores/useLayoutStore';
-import { SetAudioVolumeCommand, ApplyEffectCommand, RemoveEffectCommand } from '@kuro/editor-core';
+import { Clip, ClipAudio, ClipTransform, EffectInstance } from '@kuro/project-format';
 import {
   Sliders,
-  Clock,
-  Volume2,
-  Sparkles,
-  X,
+  Video,
+  Music,
+  Palette,
+  Gauge,
+  Type,
+  ChevronRight,
   SlidersHorizontal,
-  ChevronRight
+  Clock,
+  Sparkles,
 } from 'lucide-react';
+import { VideoTab } from './VideoTab';
+import { AudioTab } from './AudioTab';
+import { ColorTab } from './ColorTab';
+import { SpeedTab } from './SpeedTab';
+import { TextTab } from './TextTab';
+
+type InspectorTabType = 'video' | 'audio' | 'color' | 'speed' | 'text';
 
 export const InspectorPanel: React.FC = () => {
   const [, setTick] = useState(0);
+  const [activeTab, setActiveTab] = useState<InspectorTabType>('video');
 
   useEffect(() => {
     const unsubEditor = editorStore.subscribe(() => setTick((t) => t + 1));
@@ -29,41 +40,193 @@ export const InspectorPanel: React.FC = () => {
   const selectedClipIds = timelineStore.getSelectedClipIds();
   const activeClipId = selectedClipIds[0];
 
-  let selectedClip = undefined;
+  let selectedClip: Clip | undefined = undefined;
+  let selectedTrack: any = undefined;
+
   for (const track of project.tracks) {
     const found = track.clips.find((c) => c.id === activeClipId);
     if (found) {
       selectedClip = found;
+      selectedTrack = track;
       break;
     }
   }
 
-  const handleVolumeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!selectedClip) return;
-    const vol = parseFloat(e.target.value);
-    await editorStore.executeCommand(new SetAudioVolumeCommand(selectedClip.id, vol));
-  };
+  const asset = selectedClip ? project.assets.find((a) => a.id === selectedClip!.assetId) : undefined;
+  const isTitle = !!(asset?.metadata as Record<string, unknown> | undefined)?.['isTitle'];
+  const isAudioTrack = selectedTrack?.kind === 'audio';
 
-  const handleAddEffect = async (effectType: 'brightness' | 'contrast' | 'saturation' | 'blur') => {
+  // Automatically switch tab if audio-only or title is selected
+  useEffect(() => {
+    if (isTitle) {
+      setActiveTab('text');
+    } else if (isAudioTrack && activeTab === 'video') {
+      setActiveTab('audio');
+    } else if (!isAudioTrack && activeTab === 'text' && !isTitle) {
+      setActiveTab('video');
+    }
+  }, [selectedClip?.id, isTitle, isAudioTrack]);
+
+  // Update Clip Transform (Scale, Position, Rotation, Flip, Opacity, Blend)
+  const handleUpdateTransform = (newTransform: Partial<ClipTransform>) => {
     if (!selectedClip) return;
-    await editorStore.executeCommand(
-      new ApplyEffectCommand(selectedClip.id, {
-        effectType,
-        enabled: true,
-        parameters: { value: effectType === 'brightness' ? 0.2 : 1.2 },
-      })
+    const currentProj = editorStore.getProject();
+    const existing = selectedClip.transform || {
+      x: 0,
+      y: 0,
+      scaleX: 1.0,
+      scaleY: 1.0,
+      rotation: 0,
+      opacity: 1.0,
+      flipH: false,
+      flipV: false,
+      blendMode: 'normal',
+      fit: 'contain',
+    };
+
+    const updatedClip: Clip = {
+      ...selectedClip,
+      transform: {
+        ...existing,
+        ...newTransform,
+      },
+    };
+
+    const updatedTracks = currentProj.tracks.map((t) =>
+      t.id === selectedClip!.trackId
+        ? { ...t, clips: t.clips.map((c) => (c.id === selectedClip!.id ? updatedClip : c)) }
+        : t
     );
+
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      tracks: updatedTracks,
+    });
   };
 
-  const handleRemoveEffect = async (effectId: string) => {
+  // Update Clip Audio (Volume, Fades, Pan, Denoise, Pitch)
+  const handleUpdateAudio = (newAudio: Partial<ClipAudio>) => {
     if (!selectedClip) return;
-    await editorStore.executeCommand(new RemoveEffectCommand(selectedClip.id, effectId));
+    const currentProj = editorStore.getProject();
+    const existing = selectedClip.audio || {
+      volume: 1.0,
+      muted: false,
+      pan: 0,
+      fadeInTicks: 0,
+      fadeOutTicks: 0,
+    };
+
+    const updatedClip: Clip = {
+      ...selectedClip,
+      audio: {
+        ...existing,
+        ...newAudio,
+      },
+    };
+
+    const updatedTracks = currentProj.tracks.map((t) =>
+      t.id === selectedClip!.trackId
+        ? { ...t, clips: t.clips.map((c) => (c.id === selectedClip!.id ? updatedClip : c)) }
+        : t
+    );
+
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      tracks: updatedTracks,
+    });
   };
 
+  // Update Clip Effects (Brightness, Contrast, Saturation, Temperature, Tint, etc.)
+  const handleUpdateEffects = (newEffects: EffectInstance[]) => {
+    if (!selectedClip) return;
+    const currentProj = editorStore.getProject();
+
+    const updatedClip: Clip = {
+      ...selectedClip,
+      effects: newEffects,
+    };
+
+    const updatedTracks = currentProj.tracks.map((t) =>
+      t.id === selectedClip!.trackId
+        ? { ...t, clips: t.clips.map((c) => (c.id === selectedClip!.id ? updatedClip : c)) }
+        : t
+    );
+
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      tracks: updatedTracks,
+    });
+  };
+
+  // Update Clip Speed
+  const handleUpdateSpeed = (speedMultiplier: number, preservePitch?: boolean) => {
+    if (!selectedClip) return;
+    const validSpeed = Math.max(0.1, Math.min(10.0, speedMultiplier));
+    const currentProj = editorStore.getProject();
+
+    const currentSpeed =
+      selectedClip.speedNumerator && selectedClip.speedDenominator
+        ? selectedClip.speedNumerator / selectedClip.speedDenominator
+        : 1.0;
+
+    const sourceDurationTicks = Math.round(selectedClip.durationTicks * currentSpeed);
+    const newDurationTicks = Math.max(
+      Math.round(currentProj.timelineTimebase * 0.1),
+      Math.round(sourceDurationTicks / validSpeed)
+    );
+
+    const updatedClip: Clip = {
+      ...selectedClip,
+      durationTicks: newDurationTicks,
+      speedNumerator: Math.round(validSpeed * 100),
+      speedDenominator: 100,
+      audio: {
+        ...(selectedClip.audio || { volume: 1.0 }),
+        preservePitch: preservePitch ?? selectedClip.audio?.preservePitch ?? true,
+      },
+    };
+
+    const updatedTracks = currentProj.tracks.map((t) =>
+      t.id === selectedClip!.trackId
+        ? { ...t, clips: t.clips.map((c) => (c.id === selectedClip!.id ? updatedClip : c)) }
+        : t
+    );
+
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      tracks: updatedTracks,
+    });
+  };
+
+  // Update Asset Metadata (e.g. Text Title properties)
+  const handleUpdateMetadata = (newMeta: Record<string, unknown>) => {
+    if (!asset) return;
+    const currentProj = editorStore.getProject();
+    const existingMeta = (asset.metadata as Record<string, unknown> | undefined) || {};
+
+    const updatedAssets = currentProj.assets.map((a) =>
+      a.id === asset.id
+        ? {
+            ...a,
+            name: (newMeta['text'] as string) || a.name,
+            metadata: {
+              ...existingMeta,
+              ...newMeta,
+            },
+          }
+        : a
+    );
+
+    editorStore.getEditorState().setProject({
+      ...currentProj,
+      assets: updatedAssets,
+    });
+  };
+
+  // ─── Empty Placeholder if No Clip Selected ───
   if (!selectedClip) {
     return (
       <div className="h-full bg-[var(--kuro-bg-panel)] border-l border-[var(--kuro-border-subtle)] select-none flex flex-col text-xs transition-colors">
-        {/* Header */}
         <div className="h-8 px-3 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between bg-[var(--kuro-bg-panel)] shrink-0">
           <div className="flex items-center gap-1.5 font-bold text-[var(--kuro-text-primary)] uppercase tracking-wider text-xs">
             <Sliders className="w-3.5 h-3.5 text-[var(--kuro-text-secondary)]" />
@@ -78,28 +241,22 @@ export const InspectorPanel: React.FC = () => {
           </button>
         </div>
 
-        {/* Empty placeholder */}
         <div className="flex-1 flex flex-col items-center justify-center p-4 text-center text-[var(--kuro-text-muted)]">
           <div className="w-10 h-10 rounded-full bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-subtle)] flex items-center justify-center mb-2 text-[var(--kuro-text-muted)]">
             <SlidersHorizontal className="w-5 h-5" />
           </div>
           <p className="font-semibold text-[var(--kuro-text-primary)] text-xs">No Clip Selected</p>
           <p className="text-[11px] text-[var(--kuro-text-muted)] mt-1 max-w-[170px]">
-            Select any clip on the timeline to tweak volume, timing & visual effects
+            Select any clip on the timeline to tweak transform, audio, colors, speed & text
           </p>
         </div>
       </div>
     );
   }
 
-  const asset = project.assets.find((a) => a.id === selectedClip?.assetId);
-  const volume = selectedClip.audio?.volume ?? 1.0;
-  const startSec = (selectedClip.timelineStartTicks / project.timelineTimebase).toFixed(2);
-  const durationSec = (selectedClip.durationTicks / project.timelineTimebase).toFixed(2);
-
   return (
-    <div className="h-full bg-[var(--kuro-bg-panel)] border-l border-[var(--kuro-border-subtle)] select-none overflow-y-auto text-xs flex flex-col transition-colors">
-      {/* Header */}
+    <div className="h-full bg-[var(--kuro-bg-panel)] border-l border-[var(--kuro-border-subtle)] select-none text-xs flex flex-col transition-colors overflow-hidden">
+      {/* ── Top Header ── */}
       <div className="h-8 px-3 border-b border-[var(--kuro-border-subtle)] flex items-center justify-between bg-[var(--kuro-bg-panel)] shrink-0">
         <div className="flex items-center gap-1.5 font-bold text-[var(--kuro-text-primary)] uppercase tracking-wider text-xs">
           <Sliders className="w-3.5 h-3.5 text-[var(--kuro-text-secondary)]" />
@@ -119,85 +276,109 @@ export const InspectorPanel: React.FC = () => {
         </div>
       </div>
 
-      <div className="p-3 space-y-3.5 flex-1 overflow-y-auto">
-        {/* Clip Timing Summary */}
-        <div className="bg-[var(--kuro-bg-surface)] p-2.5 rounded-lg border border-[var(--kuro-border-subtle)] space-y-1.5 shadow-sm">
-          <div className="flex items-center gap-1.5 font-semibold text-[var(--kuro-text-primary)] text-xs">
-            <Clock className="w-3 h-3 text-[var(--kuro-text-secondary)]" />
-            <span>Clip Timing</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-[var(--kuro-text-muted)] text-[11px]">
-            <div>Start: <span className="text-[var(--kuro-text-primary)] font-mono font-medium">{startSec}s</span></div>
-            <div>Duration: <span className="text-[var(--kuro-text-primary)] font-mono font-medium">{durationSec}s</span></div>
-          </div>
-        </div>
+      {/* ── Inspector Category Tabs Bar (Video / Audio / Color / Speed / Text) ── */}
+      <div className="flex items-center border-b border-[var(--kuro-border-subtle)] bg-[var(--kuro-bg-canvas)] px-2 pt-1 gap-1 shrink-0 overflow-x-auto select-none">
+        {/* Video Tab (hide if pure audio track) */}
+        {!isAudioTrack && (
+          <button
+            onClick={() => setActiveTab('video')}
+            className={`px-2.5 py-1.5 rounded-t text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer border-t-2 ${
+              activeTab === 'video'
+                ? 'bg-[var(--kuro-bg-panel)] text-white border-white'
+                : 'text-[var(--kuro-text-muted)] hover:text-white border-transparent'
+            }`}
+          >
+            <Video className="w-3 h-3" />
+            <span>Video</span>
+          </button>
+        )}
 
-        {/* Audio Volume Fader */}
-        <div className="space-y-1.5 bg-[var(--kuro-bg-surface)] p-2.5 rounded-lg border border-[var(--kuro-border-subtle)] shadow-sm">
-          <div className="flex justify-between items-center text-[var(--kuro-text-primary)]">
-            <span className="font-semibold flex items-center gap-1.5">
-              <Volume2 className="w-3 h-3 text-[var(--kuro-text-secondary)]" />
-              <span>Audio Level</span>
-            </span>
-            <span className="font-mono text-[var(--kuro-text-primary)] font-semibold text-[11px]">{(volume * 100).toFixed(0)}%</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="2"
-            step="0.05"
-            value={volume}
-            onChange={handleVolumeChange}
-            className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
+        {/* Audio Tab */}
+        <button
+          onClick={() => setActiveTab('audio')}
+          className={`px-2.5 py-1.5 rounded-t text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer border-t-2 ${
+            activeTab === 'audio'
+              ? 'bg-[var(--kuro-bg-panel)] text-white border-white'
+              : 'text-[var(--kuro-text-muted)] hover:text-white border-transparent'
+          }`}
+        >
+          <Music className="w-3 h-3" />
+          <span>Audio</span>
+        </button>
+
+        {/* Color Tab (hide if pure audio track) */}
+        {!isAudioTrack && (
+          <button
+            onClick={() => setActiveTab('color')}
+            className={`px-2.5 py-1.5 rounded-t text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer border-t-2 ${
+              activeTab === 'color'
+                ? 'bg-[var(--kuro-bg-panel)] text-white border-white'
+                : 'text-[var(--kuro-text-muted)] hover:text-white border-transparent'
+            }`}
+          >
+            <Palette className="w-3 h-3" />
+            <span>Color</span>
+          </button>
+        )}
+
+        {/* Speed Tab */}
+        <button
+          onClick={() => setActiveTab('speed')}
+          className={`px-2.5 py-1.5 rounded-t text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer border-t-2 ${
+            activeTab === 'speed'
+              ? 'bg-[var(--kuro-bg-panel)] text-white border-white'
+              : 'text-[var(--kuro-text-muted)] hover:text-white border-transparent'
+          }`}
+        >
+          <Gauge className="w-3 h-3" />
+          <span>Speed</span>
+        </button>
+
+        {/* Text Tab (shown if title clip) */}
+        {isTitle && (
+          <button
+            onClick={() => setActiveTab('text')}
+            className={`px-2.5 py-1.5 rounded-t text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer border-t-2 ${
+              activeTab === 'text'
+                ? 'bg-[var(--kuro-bg-panel)] text-white border-white'
+                : 'text-[var(--kuro-text-muted)] hover:text-white border-transparent'
+            }`}
+          >
+            <Type className="w-3 h-3" />
+            <span>Text</span>
+          </button>
+        )}
+      </div>
+
+      {/* ── Active Tab Scrollable Content ── */}
+      <div className="flex-1 overflow-y-auto p-3">
+        {activeTab === 'video' && !isAudioTrack && (
+          <VideoTab clip={selectedClip} onUpdateTransform={handleUpdateTransform} />
+        )}
+
+        {activeTab === 'audio' && (
+          <AudioTab
+            clip={selectedClip}
+            timelineTimebase={project.timelineTimebase}
+            onUpdateAudio={handleUpdateAudio}
           />
-        </div>
+        )}
 
-        {/* Visual Effects Stack */}
-        <div className="space-y-2 pt-1 border-t border-[var(--kuro-border-subtle)]">
-          <div className="flex justify-between items-center">
-            <span className="font-semibold text-[var(--kuro-text-primary)] flex items-center gap-1.5">
-              <Sparkles className="w-3 h-3 text-[var(--kuro-text-secondary)]" />
-              <span>Effects ({selectedClip.effects.length})</span>
-            </span>
-            <select
-              onChange={(e) => {
-                if (e.target.value) {
-                  handleAddEffect(e.target.value as 'brightness' | 'contrast' | 'saturation' | 'blur');
-                  e.target.value = '';
-                }
-              }}
-              className="bg-[var(--kuro-bg-surface)] text-[var(--kuro-text-primary)] border border-[var(--kuro-border-subtle)] text-[11px] rounded px-2 py-0.5 focus:outline-none cursor-pointer"
-            >
-              <option value="">+ Add Effect</option>
-              <option value="brightness">Brightness</option>
-              <option value="contrast">Contrast</option>
-              <option value="saturation">Saturation</option>
-              <option value="blur">Blur</option>
-            </select>
-          </div>
+        {activeTab === 'color' && !isAudioTrack && (
+          <ColorTab clip={selectedClip} onUpdateEffects={handleUpdateEffects} />
+        )}
 
-          {selectedClip.effects.length === 0 ? (
-            <p className="text-[11px] text-[var(--kuro-text-muted)] italic py-1">No color or visual filters applied.</p>
-          ) : (
-            <div className="space-y-1.5">
-              {selectedClip.effects.map((effect) => (
-                <div
-                  key={effect.id}
-                  className="flex items-center justify-between p-2 rounded-lg bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-subtle)] shadow-sm"
-                >
-                  <span className="capitalize text-[var(--kuro-text-primary)] font-medium text-xs">{effect.effectType}</span>
-                  <button
-                    onClick={() => handleRemoveEffect(effect.id)}
-                    className="p-1 text-[var(--kuro-text-muted)] hover:text-[var(--kuro-text-primary)] hover:bg-[var(--kuro-bg-hover)] rounded transition"
-                    title="Remove Effect"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        {activeTab === 'speed' && (
+          <SpeedTab
+            clip={selectedClip}
+            timelineTimebase={project.timelineTimebase}
+            onUpdateSpeed={handleUpdateSpeed}
+          />
+        )}
+
+        {activeTab === 'text' && (
+          <TextTab clip={selectedClip} asset={asset} onUpdateMetadata={handleUpdateMetadata} />
+        )}
       </div>
     </div>
   );

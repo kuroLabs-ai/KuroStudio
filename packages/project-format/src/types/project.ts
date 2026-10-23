@@ -38,8 +38,12 @@ export interface ClipTransform {
   y: number;
   scaleX: number; // Default 1.0
   scaleY: number; // Default 1.0
-  rotation: number; // Degrees
+  rotation: number; // Degrees (-180 to +180)
   opacity: number; // 0.0 - 1.0
+  flipH?: boolean;
+  flipV?: boolean;
+  blendMode?: string;
+  fit?: 'contain' | 'cover' | 'fill';
 }
 
 export interface ClipAudio {
@@ -48,11 +52,15 @@ export interface ClipAudio {
   pan?: number; // -1.0 (left) to 1.0 (right)
   fadeInTicks?: TimelineTicks;
   fadeOutTicks?: TimelineTicks;
+  denoise?: boolean;
+  denoiseAmount?: number; // 0 - 100
+  pitchSemitones?: number; // -12 to 12
+  preservePitch?: boolean;
 }
 
 export interface EffectInstance {
   id: string;
-  effectType: 'brightness' | 'contrast' | 'saturation' | 'opacity' | 'blur' | 'lut';
+  effectType: 'brightness' | 'contrast' | 'saturation' | 'opacity' | 'blur' | 'lut' | 'temperature' | 'tint' | 'vignette' | 'sharpen';
   enabled: boolean;
   parameters: Record<string, number | string | boolean>;
 }
