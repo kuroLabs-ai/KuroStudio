@@ -42,7 +42,14 @@ export const TimelineView: React.FC = () => {
   const [, setTick] = useState(0);
   const rulerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const tracksContainerRef = useRef<HTMLDivElement>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const [marquee, setMarquee] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
 
   // Drag and Drop Hover States for Existing Tracks
   const [dragOverTrackId, setDragOverTrackId] = useState<string | null>(null);
@@ -131,6 +138,110 @@ export const TimelineView: React.FC = () => {
   const basePixelsPerSecond = 50;
   const pixelsPerSecond = basePixelsPerSecond * zoom;
   const pixelsPerTick = pixelsPerSecond / project.timelineTimebase;
+
+  const totalProjectTicks = useMemo(() => {
+    return project.tracks.reduce(
+      (max, t) => t.clips.reduce((m, c) => Math.max(m, c.timelineStartTicks + c.durationTicks), max),
+      0
+    );
+  }, [project.tracks]);
+
+  const totalDurationSec = totalProjectTicks / project.timelineTimebase;
+  const fps = Math.round(project.fpsNumerator / project.fpsDenominator) || 30;
+
+  // ─── Adaptive Time Ruler Config (Frames, Seconds, Minutes based on Zoom) ───
+  const rulerTicks = useMemo(() => {
+    const maxSec = Math.max(300, totalDurationSec + 120);
+    let majorIntervalSec = 5;
+    let minorIntervalSec = 1;
+    let formatTick = (sec: number) => `${sec}s`;
+
+    if (pixelsPerSecond >= 250) {
+      // Extreme zoom in: show frames! (e.g. 5f or 10f)
+      const frameStep = fps <= 30 ? 5 : 10;
+      majorIntervalSec = frameStep / fps;
+      minorIntervalSec = 1 / fps;
+      formatTick = (sec: number) => {
+        const totalFrames = Math.round(sec * fps);
+        const s = Math.floor(totalFrames / fps);
+        const f = totalFrames % fps;
+        return f === 0 ? `${s}s` : `${f}f`;
+      };
+    } else if (pixelsPerSecond >= 90) {
+      // Zoom in: 1s major, 0.25s minor
+      majorIntervalSec = 1;
+      minorIntervalSec = 0.25;
+      formatTick = (sec: number) => `${sec}s`;
+    } else if (pixelsPerSecond >= 40) {
+      // Normal: 2s major, 1s minor
+      majorIntervalSec = 2;
+      minorIntervalSec = 1;
+      formatTick = (sec: number) => `${sec}s`;
+    } else if (pixelsPerSecond >= 20) {
+      // Zoom out: 5s major, 1s minor
+      majorIntervalSec = 5;
+      minorIntervalSec = 1;
+      formatTick = (sec: number) => `${sec}s`;
+    } else if (pixelsPerSecond >= 10) {
+      // Zoom out more: 15s major
+      majorIntervalSec = 15;
+      minorIntervalSec = 5;
+      formatTick = (sec: number) => {
+        const m = Math.floor(sec / 60);
+        const s = Math.round(sec % 60);
+        return m > 0 ? (s === 0 ? `${m}m` : `${m}m${s}s`) : `${s}s`;
+      };
+    } else {
+      // Ultra zoom out: 60s (1m) or 120s (2m)
+      majorIntervalSec = 60;
+      minorIntervalSec = 15;
+      formatTick = (sec: number) => {
+        const m = Math.floor(sec / 60);
+        return `${m}m`;
+      };
+    }
+
+    const ticks: Array<{
+      key: string;
+      timeSec: number;
+      leftPx: number;
+      label: string;
+      isMajor: boolean;
+    }> = [];
+
+    const numMajor = Math.ceil(maxSec / majorIntervalSec) + 1;
+    for (let i = 0; i < numMajor; i++) {
+      const timeSec = i * majorIntervalSec;
+      const leftPx = timeSec * pixelsPerSecond;
+      ticks.push({
+        key: `maj_${i}`,
+        timeSec,
+        leftPx,
+        label: formatTick(timeSec),
+        isMajor: true,
+      });
+
+      const numMinors = Math.round(majorIntervalSec / minorIntervalSec);
+      if (numMinors > 1 && numMinors <= 12) {
+        for (let j = 1; j < numMinors; j++) {
+          const minorSec = timeSec + j * minorIntervalSec;
+          if (minorSec < maxSec) {
+            ticks.push({
+              key: `min_${i}_${j}`,
+              timeSec: minorSec,
+              leftPx: minorSec * pixelsPerSecond,
+              label: '',
+              isMajor: false,
+            });
+          }
+        }
+      }
+    }
+
+    return ticks;
+  }, [pixelsPerSecond, totalDurationSec, fps]);
+
+  const timelineContentWidthPx = Math.max(3600, (totalDurationSec + 120) * pixelsPerSecond);
 
   // Track Categorization for NLE Layer Stacking Order:
   const videoTracks = project.tracks.filter((t) => t.kind === 'video');
@@ -587,6 +698,64 @@ export const TimelineView: React.FC = () => {
     };
   }, [isScrubbing, pixelsPerTick]);
 
+  // ─── Windows-Style Marquee Box Selection ──────────────────────────────────
+  useEffect(() => {
+    if (!marquee) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const container = tracksContainerRef.current;
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const currentX = e.clientX - rect.left;
+      const currentY = e.clientY - rect.top;
+
+      setMarquee((prev) => (prev ? { ...prev, currentX, currentY } : null));
+
+      const boxLeft = Math.min(marquee.startX, currentX);
+      const boxRight = Math.max(marquee.startX, currentX);
+      const boxTop = Math.min(marquee.startY, currentY);
+      const boxBottom = Math.max(marquee.startY, currentY);
+
+      if (Math.abs(currentX - marquee.startX) > 4 || Math.abs(currentY - marquee.startY) > 4) {
+        const clipEls = container.querySelectorAll<HTMLElement>('[data-clip-id]');
+        const matchedIds: string[] = [];
+
+        clipEls.forEach((el) => {
+          const elRect = el.getBoundingClientRect();
+          const clipLeft = elRect.left - rect.left;
+          const clipRight = elRect.right - rect.left;
+          const clipTop = elRect.top - rect.top;
+          const clipBottom = elRect.bottom - rect.top;
+
+          const intersects =
+            boxLeft < clipRight &&
+            boxRight > clipLeft &&
+            boxTop < clipBottom &&
+            boxBottom > clipTop;
+
+          if (intersects) {
+            const cid = el.getAttribute('data-clip-id');
+            if (cid) matchedIds.push(cid);
+          }
+        });
+
+        timelineStore.setSelectedClipIds(matchedIds);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setMarquee(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [marquee]);
+
   // ─── Split / Cut Actions ──────────────────────────────────────────────────
   const handleSplitAtPlayhead = async () => {
     let targetClipId = selectedClipIds[0];
@@ -651,9 +820,11 @@ export const TimelineView: React.FC = () => {
 
   // ─── Delete Actions ───────────────────────────────────────────────────────
   const handleDeleteSelected = async () => {
-    const activeClipId = selectedClipIds[0];
-    if (!activeClipId) return;
-    await editorStore.executeCommand(new DeleteClipCommand(activeClipId));
+    if (selectedClipIds.length === 0) return;
+    for (const clipId of selectedClipIds) {
+      await editorStore.executeCommand(new DeleteClipCommand(clipId));
+    }
+    timelineStore.clearSelection();
   };
 
   // Ripple Delete (Closes Gap by pulling subsequent clips backward)
@@ -690,59 +861,108 @@ export const TimelineView: React.FC = () => {
     }
   };
 
-  // ─── Freeze Frame (Hold Frame 3s) ─────────────────────────────────────────
+  // ─── Freeze Frame (Hold Frame 3s - Snapshots exact stopped frame) ─────────
   const handleFreezeFrame = async () => {
     const currentProj = editorStore.getProject();
     let targetClip: Clip | undefined;
     let targetTrack: Track | undefined;
 
-    for (const t of currentProj.tracks) {
-      if (t.kind === 'video') {
-        const hit = t.clips.find(
-          (c) => playheadTicks >= c.timelineStartTicks && playheadTicks < c.timelineStartTicks + c.durationTicks
-        );
-        if (hit) {
-          targetClip = hit;
-          targetTrack = t;
-          break;
+    // First check selected clip if it's video
+    if (selectedClipIds[0]) {
+      for (const t of currentProj.tracks) {
+        if (t.kind === 'video') {
+          const hit = t.clips.find((c) => c.id === selectedClipIds[0]);
+          if (hit) {
+            targetClip = hit;
+            targetTrack = t;
+            break;
+          }
+        }
+      }
+    }
+
+    // Otherwise find clip under playhead
+    if (!targetClip || !targetTrack) {
+      for (const t of currentProj.tracks) {
+        if (t.kind === 'video' && !t.hidden) {
+          const hit = t.clips.find(
+            (c) => playheadTicks >= c.timelineStartTicks && playheadTicks < c.timelineStartTicks + c.durationTicks
+          );
+          if (hit) {
+            targetClip = hit;
+            targetTrack = t;
+            break;
+          }
         }
       }
     }
     if (!targetClip || !targetTrack) return;
 
+    // Capture the exact stopped frame from the HTMLVideoElement
+    let frameDataUrl: string | undefined;
+    const videoEl =
+      document.querySelector<HTMLVideoElement>(`video[data-track-id="${targetTrack.id}"]`) ||
+      document.querySelector<HTMLVideoElement>('video');
+
+    if (videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = videoEl.videoWidth;
+        canvas.height = videoEl.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+          frameDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+        }
+      } catch (err) {
+        console.warn('Could not snapshot video canvas frame:', err);
+      }
+    }
+
     const parentAsset = currentProj.assets.find((a) => a.id === targetClip!.assetId);
     const freezeDurationTicks = Math.round(3.0 * currentProj.timelineTimebase);
+    const snapshotUrl =
+      frameDataUrl || (parentAsset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'];
 
     const freezeAssetId = generateId('asset_freeze');
     const freezeAsset: AssetReference = {
       id: freezeAssetId,
       name: `Freeze Frame (${parentAsset?.name || 'Frame'})`,
       type: 'image',
-      storageMode: 'linked',
-      filePath: parentAsset?.filePath || 'freeze://frame',
-      fileSizeBytes: 0,
+      storageMode: 'embedded',
+      filePath: `freeze://${freezeAssetId}.jpg`,
+      fileSizeBytes: frameDataUrl ? Math.round(frameDataUrl.length * 0.75) : 0,
       durationTicks: freezeDurationTicks,
-      thumbnailPath: parentAsset?.thumbnailPath,
+      thumbnailPath: frameDataUrl || parentAsset?.thumbnailPath,
       metadata: {
-        blobUrl: (parentAsset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'],
+        blobUrl: snapshotUrl,
         isFreezeFrame: true,
       },
     };
 
-    const firstHalfDuration = playheadTicks - targetClip.timelineStartTicks;
+    const targetStart = targetClip.timelineStartTicks;
+    const cutTick = Math.max(targetStart + 1, Math.min(targetStart + targetClip.durationTicks - 1, playheadTicks));
+    const firstHalfDuration = cutTick - targetStart;
     const secondHalfDuration = targetClip.durationTicks - firstHalfDuration;
+
+    const origSourceIn = Number.isFinite(targetClip.sourceInTicks) ? targetClip.sourceInTicks : 0;
+    const speedRatio =
+      targetClip.speedNumerator && targetClip.speedDenominator
+        ? targetClip.speedNumerator / targetClip.speedDenominator
+        : 1;
 
     const firstHalf: Clip = {
       ...targetClip,
       durationTicks: firstHalfDuration,
-      sourceOutTicks: targetClip.sourceInTicks + firstHalfDuration,
+      sourceInTicks: origSourceIn,
+      sourceOutTicks: origSourceIn + Math.round(firstHalfDuration * speedRatio),
     };
 
     const freezeClip: Clip = {
       id: generateId('clip_freeze'),
       assetId: freezeAssetId,
       trackId: targetTrack.id,
-      timelineStartTicks: playheadTicks,
+      timelineStartTicks: cutTick,
       durationTicks: freezeDurationTicks,
       sourceInTicks: 0,
       sourceOutTicks: freezeDurationTicks,
@@ -753,18 +973,20 @@ export const TimelineView: React.FC = () => {
       id: generateId('clip'),
       assetId: targetClip.assetId,
       trackId: targetTrack.id,
-      timelineStartTicks: playheadTicks + freezeDurationTicks,
+      timelineStartTicks: cutTick + freezeDurationTicks,
       durationTicks: secondHalfDuration,
-      sourceInTicks: targetClip.sourceInTicks + firstHalfDuration,
-      sourceOutTicks: targetClip.sourceOutTicks,
+      sourceInTicks: firstHalf.sourceOutTicks,
+      sourceOutTicks: targetClip.sourceOutTicks ?? (origSourceIn + Math.round(targetClip.durationTicks * speedRatio)),
       audio: targetClip.audio,
       effects: targetClip.effects,
+      speedNumerator: targetClip.speedNumerator,
+      speedDenominator: targetClip.speedDenominator,
     };
 
     const updatedClips = targetTrack.clips
       .filter((c) => c.id !== targetClip!.id)
       .map((c) => {
-        if (c.timelineStartTicks >= playheadTicks) {
+        if (c.timelineStartTicks >= cutTick) {
           return { ...c, timelineStartTicks: c.timelineStartTicks + freezeDurationTicks };
         }
         return c;
@@ -782,6 +1004,8 @@ export const TimelineView: React.FC = () => {
       assets: [...currentProj.assets, freezeAsset],
       tracks: currentProj.tracks.map((t) => (t.id === targetTrack!.id ? { ...t, clips: newTrackClips } : t)),
     });
+
+    timelineStore.selectClip(freezeClip.id);
   };
 
   // ─── Detach Audio (Extract Audio from Video onto Audio Track) ──────────────
@@ -856,9 +1080,9 @@ export const TimelineView: React.FC = () => {
     });
   };
 
-  // ─── Speed / Duration Adjuster (0.5x, 1x, 1.5x, 2x) ───────────────────────
+  // ─── Speed / Duration Adjuster (Presets & Custom Slider) ───────────────────
   const handleSetClipSpeed = async (speedMultiplier: number) => {
-    setShowSpeedMenu(false);
+    const validSpeed = Math.max(0.1, Math.min(10.0, speedMultiplier));
     const activeClipId = selectedClipIds[0];
     if (!activeClipId) return;
 
@@ -866,13 +1090,27 @@ export const TimelineView: React.FC = () => {
     for (const track of currentProj.tracks) {
       const clip = track.clips.find((c) => c.id === activeClipId);
       if (clip) {
+        const currentSpeed =
+          clip.speedNumerator && clip.speedDenominator
+            ? clip.speedNumerator / clip.speedDenominator
+            : 1.0;
+
+        // Source duration in ticks
+        const sourceDurationTicks = Math.round(clip.durationTicks * currentSpeed);
+        // New timeline duration based on new speed
         const newDurationTicks = Math.max(
-          Math.round(currentProj.timelineTimebase * 0.2),
-          Math.round(clip.durationTicks / speedMultiplier)
+          Math.round(currentProj.timelineTimebase * 0.1),
+          Math.round(sourceDurationTicks / validSpeed)
         );
-        const updatedClips = track.clips.map((c) =>
-          c.id === clip.id ? { ...c, durationTicks: newDurationTicks } : c
-        );
+
+        const updatedClip: Clip = {
+          ...clip,
+          durationTicks: newDurationTicks,
+          speedNumerator: Math.round(validSpeed * 100),
+          speedDenominator: 100,
+        };
+
+        const updatedClips = track.clips.map((c) => (c.id === clip.id ? updatedClip : c));
         editorStore.getEditorState().setProject({
           ...currentProj,
           tracks: currentProj.tracks.map((t) => (t.id === track.id ? { ...t, clips: updatedClips } : t)),
@@ -1378,16 +1616,49 @@ export const TimelineView: React.FC = () => {
             </button>
 
             {showSpeedMenu && selectedClip && (
-              <div className="absolute top-7 left-0 bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-base)] rounded shadow-2xl p-1 z-50 flex flex-col gap-0.5 w-24">
-                {[0.5, 1.0, 1.5, 2.0].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => handleSetClipSpeed(s)}
-                    className="px-2 py-1 text-left text-[11px] rounded hover:bg-[var(--kuro-bg-hover)] text-[var(--kuro-text-primary)] font-mono"
-                  >
-                    {s}x {s === 0.5 ? 'Slow' : s === 1.0 ? 'Normal' : 'Fast'}
-                  </button>
-                ))}
+              <div className="absolute top-7 left-0 bg-[var(--kuro-bg-surface)] border border-[var(--kuro-border-base)] rounded shadow-2xl p-2 z-50 flex flex-col gap-2 w-48">
+                <div className="text-[10px] font-bold text-[var(--kuro-text-secondary)] tracking-wider uppercase flex items-center justify-between">
+                  <span>Clip Speed</span>
+                  <span className="font-mono text-white">
+                    {((selectedClip.clip.speedNumerator && selectedClip.clip.speedDenominator
+                      ? selectedClip.clip.speedNumerator / selectedClip.clip.speedDenominator
+                      : 1.0)).toFixed(2)}x
+                  </span>
+                </div>
+
+                {/* Speed Presets Grid */}
+                <div className="grid grid-cols-3 gap-1">
+                  {[0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 4.0, 8.0].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => handleSetClipSpeed(s)}
+                      className="px-1.5 py-1 text-center text-[11px] rounded bg-[var(--kuro-bg-canvas)] hover:bg-white hover:text-black text-[var(--kuro-text-primary)] font-mono border border-[var(--kuro-border-subtle)] transition"
+                    >
+                      {s}x
+                    </button>
+                  ))}
+                </div>
+
+                {/* Custom Speed Slider & Input */}
+                <div className="flex flex-col gap-1 border-t border-[var(--kuro-border-subtle)] pt-1.5">
+                  <div className="flex items-center justify-between text-[10px] text-[var(--kuro-text-muted)] font-mono">
+                    <span>Custom:</span>
+                    <span>0.1x — 5x</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="5.0"
+                    step="0.05"
+                    value={
+                      selectedClip.clip.speedNumerator && selectedClip.clip.speedDenominator
+                        ? selectedClip.clip.speedNumerator / selectedClip.clip.speedDenominator
+                        : 1.0
+                    }
+                    onChange={(e) => handleSetClipSpeed(parseFloat(e.target.value))}
+                    className="w-full accent-[var(--kuro-text-primary)] cursor-pointer"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1609,21 +1880,70 @@ export const TimelineView: React.FC = () => {
         </div>
 
         {/* Tracks Content & Time Ruler */}
-        <div className="flex-1 relative min-w-[3200px]">
-          {/* Time Ruler */}
+        <div
+          ref={tracksContainerRef}
+          onMouseDown={(e) => {
+            if (e.button !== 0 || activeTool !== 'select') return;
+            const target = e.target as HTMLElement;
+            if (
+              target.closest('[data-clip-id]') ||
+              target.closest('button') ||
+              target.closest('[data-trim-handle]') ||
+              target.closest('[data-ruler]')
+            ) {
+              return;
+            }
+
+            const container = tracksContainerRef.current;
+            if (!container) return;
+
+            const rect = container.getBoundingClientRect();
+            const startX = e.clientX - rect.left;
+            const startY = e.clientY - rect.top;
+
+            if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+              timelineStore.clearSelection();
+            }
+
+            setMarquee({ startX, startY, currentX: startX, currentY: startY });
+          }}
+          className="flex-1 relative"
+          style={{ minWidth: `${timelineContentWidthPx}px` }}
+        >
+          {/* Marquee Drag-Selection Box (Windows style) */}
+          {marquee &&
+            (Math.abs(marquee.currentX - marquee.startX) > 4 ||
+              Math.abs(marquee.currentY - marquee.startY) > 4) && (
+              <div
+                className="absolute border border-white/80 bg-white/10 rounded-xs pointer-events-none z-50 shadow-md backdrop-blur-[1px]"
+                style={{
+                  left: Math.min(marquee.startX, marquee.currentX),
+                  top: Math.min(marquee.startY, marquee.currentY),
+                  width: Math.abs(marquee.currentX - marquee.startX),
+                  height: Math.abs(marquee.currentY - marquee.startY),
+                }}
+              />
+            )}
+
+          {/* Time Ruler (Adaptive Frames, Seconds, Minutes) */}
           <div
             ref={rulerRef}
+            data-ruler="true"
             onMouseDown={handleRulerMouseDown}
-            className="h-6 bg-[var(--kuro-bg-surface)] border-b border-[var(--kuro-border-subtle)] relative cursor-ew-resize select-none shrink-0"
+            className="h-6 bg-[var(--kuro-bg-surface)] border-b border-[var(--kuro-border-subtle)] relative cursor-ew-resize select-none shrink-0 overflow-hidden"
             title="Click or drag to scrub playhead"
           >
-            {Array.from({ length: 70 }).map((_, i) => (
+            {rulerTicks.map((tick) => (
               <div
-                key={i}
-                className="absolute top-0 bottom-0 border-l border-[var(--kuro-border-subtle)] text-[9px] font-mono text-[var(--kuro-text-muted)] pl-1 flex items-center pointer-events-none"
-                style={{ left: `${i * 5 * pixelsPerSecond}px` }}
+                key={tick.key}
+                className={`absolute top-0 pointer-events-none ${
+                  tick.isMajor
+                    ? 'bottom-0 border-l border-[var(--kuro-border-base)] text-[9px] font-mono text-[var(--kuro-text-secondary)] pl-1 flex items-center font-medium'
+                    : 'bottom-0 h-2 border-l border-[var(--kuro-border-subtle)]/70'
+                }`}
+                style={{ left: `${tick.leftPx}px` }}
               >
-                {i * 5}s
+                {tick.isMajor ? tick.label : null}
               </div>
             ))}
           </div>
@@ -1755,10 +2075,16 @@ export const TimelineView: React.FC = () => {
                   return (
                     <div
                       key={clip.id}
+                      data-clip-id={clip.id}
                       onMouseDown={(e) => {
                         if (activeTool === 'razor') return;
                         e.stopPropagation();
-                        timelineStore.selectClip(clip.id);
+                        const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+                        if (isMulti) {
+                          timelineStore.selectClip(clip.id, true);
+                        } else if (!selectedClipIds.includes(clip.id)) {
+                          timelineStore.selectClip(clip.id, false);
+                        }
                         setMovingClip({
                           clipId: clip.id,
                           originalTrackId: track.id,
@@ -1822,6 +2148,7 @@ export const TimelineView: React.FC = () => {
                       {/* ── Left Edge Interactive Trim Handle (Trim In) ── */}
                       {activeTool === 'select' && (
                         <div
+                          data-trim-handle="true"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             timelineStore.selectClip(clip.id);
@@ -1846,6 +2173,7 @@ export const TimelineView: React.FC = () => {
                       {/* ── Right Edge Interactive Trim Handle (Trim Out) ── */}
                       {activeTool === 'select' && (
                         <div
+                          data-trim-handle="true"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             timelineStore.selectClip(clip.id);

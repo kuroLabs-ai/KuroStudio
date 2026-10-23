@@ -153,14 +153,14 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Standard Delete or Backspace: Delete selected clip (leaves gap)
+      // Standard Delete or Backspace: Delete selected clips (leaves gap)
       if (e.code === 'Delete' || e.code === 'Backspace') {
         e.preventDefault();
         const selectedClipIds = timelineStore.getSelectedClipIds();
-        const activeClipId = selectedClipIds[0];
-        if (activeClipId) {
-          await editorStore.executeCommand(new DeleteClipCommand(activeClipId));
+        for (const clipId of selectedClipIds) {
+          await editorStore.executeCommand(new DeleteClipCommand(clipId));
         }
+        timelineStore.clearSelection();
         return;
       }
 
