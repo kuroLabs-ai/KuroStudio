@@ -1,127 +1,78 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { AddTransitionCommand } from '@kuro/editor-core';
+import {
+  TRANSITIONS_50_CATALOG,
+  TransitionItem,
+} from './transitionsCatalog';
 import {
   Layers,
   Search,
   Clock,
   Sparkles,
   Check,
-  Film
+  Film,
+  Zap,
+  Move,
+  Flame,
+  Grid,
+  Box,
+  SlidersHorizontal,
+  ArrowUpDown,
 } from 'lucide-react';
 
-interface TransitionItem {
-  id: string;
-  name: string;
-  category: 'dissolves' | 'motion' | 'cinematic' | 'stylized';
-  type: 'cross-dissolve' | 'fade-to-black' | 'hard-cut';
-  description: string;
-  previewClass: string;
-}
+type SortOption = 'name' | 'category' | 'duration' | 'popular';
 
-const TRANSITIONS_CATALOG: TransitionItem[] = [
-  {
-    id: 'tr_cross_dissolve',
-    name: 'Cross Dissolve',
-    category: 'dissolves',
-    type: 'cross-dissolve',
-    description: 'Smooth linear blend between two adjacent shots',
-    previewClass: 'opacity-50',
-  },
-  {
-    id: 'tr_dip_black',
-    name: 'Dip to Black',
-    category: 'cinematic',
-    type: 'fade-to-black',
-    description: 'Fades outgoing clip to pure black, then fades in incoming shot',
-    previewClass: 'bg-black',
-  },
-  {
-    id: 'tr_dip_white',
-    name: 'Dip to White',
-    category: 'cinematic',
-    type: 'cross-dissolve',
-    description: 'Flash transition fading through pure white for high-energy cuts',
-    previewClass: 'bg-white',
-  },
-  {
-    id: 'tr_slide_left',
-    name: 'Slide Left',
-    category: 'motion',
-    type: 'cross-dissolve',
-    description: 'Next video slides in horizontally from right to left',
-    previewClass: 'translate-x-2',
-  },
-  {
-    id: 'tr_slide_right',
-    name: 'Slide Right',
-    category: 'motion',
-    type: 'cross-dissolve',
-    description: 'Next video pushes outgoing clip to the right',
-    previewClass: '-translate-x-2',
-  },
-  {
-    id: 'tr_zoom_in',
-    name: 'Zoom Push',
-    category: 'motion',
-    type: 'cross-dissolve',
-    description: 'Dynamic forward zoom push entering the next scene',
-    previewClass: 'scale-110',
-  },
-  {
-    id: 'tr_glitch_flash',
-    name: 'Digital Glitch',
-    category: 'stylized',
-    type: 'cross-dissolve',
-    description: 'RGB chromatic tear and displacement jump transition',
-    previewClass: 'skew-x-2',
-  },
-  {
-    id: 'tr_whip_pan',
-    name: 'Whip Pan',
-    category: 'motion',
-    type: 'cross-dissolve',
-    description: 'High-speed directional motion blur simulating fast camera pan',
-    previewClass: 'blur-xs',
-  },
-  {
-    id: 'tr_clock_wipe',
-    name: 'Radial Wipe',
-    category: 'dissolves',
-    type: 'cross-dissolve',
-    description: 'Rotational 360 clock sweep revealing the second track',
-    previewClass: 'rotate-45',
-  },
-  {
-    id: 'tr_iris_close',
-    name: 'Iris Circle',
-    category: 'cinematic',
-    type: 'cross-dissolve',
-    description: 'Classic circular cinematic iris wipe',
-    previewClass: 'rounded-full',
-  },
+const CATEGORIES = [
+  { id: 'all', label: 'All (50)', icon: Sparkles },
+  { id: 'dissolves', label: 'Dissolves', icon: Layers },
+  { id: 'motion', label: 'Motion & Push', icon: Move },
+  { id: 'wipes', label: 'Wipes', icon: Grid },
+  { id: 'glitch', label: 'Glitch & FX', icon: Zap },
+  { id: 'light', label: 'Light & Leaks', icon: Flame },
+  { id: '3d', label: '3D Spatial', icon: Box },
+  { id: 'cinematic', label: 'Cinematic', icon: Film },
 ];
 
 export const TransitionsPanel: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<SortOption>('popular');
   const [durationSec, setDurationSec] = useState(1.0);
   const [lastAppliedId, setLastAppliedId] = useState<string | null>(null);
 
   const project = editorStore.getProject();
   const selectedClipIds = timelineStore.getSelectedClipIds();
 
-  const filteredTransitions = TRANSITIONS_CATALOG.filter((item) => {
-    const matchesCat = selectedCategory === 'all' || item.category === selectedCategory;
-    const matchesSearch =
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCat && matchesSearch;
-  });
+  // Filter & Sort
+  const processedTransitions = useMemo(() => {
+    let list = TRANSITIONS_50_CATALOG.filter((item) => {
+      const matchesCat = selectedCategory === 'all' || item.category === selectedCategory;
+      const matchesSearch =
+        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.category.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesCat && matchesSearch;
+    });
+
+    // Sorting
+    list = [...list].sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name);
+      if (sortBy === 'category') return a.category.localeCompare(b.category);
+      if (sortBy === 'duration') return a.durationDefaultSec - b.durationDefaultSec;
+      if (sortBy === 'popular') {
+        const aPop = a.badge === 'Popular' ? 1 : 0;
+        const bPop = b.badge === 'Popular' ? 1 : 0;
+        return bPop - aPop;
+      }
+      return 0;
+    });
+
+    return list;
+  }, [selectedCategory, searchQuery, sortBy]);
 
   const handleApplyTransition = async (item: TransitionItem) => {
-    // If two clips are selected or we have adjacent clips on a track
     let outgoingId: string | null = null;
     let incomingId: string | null = null;
 
@@ -129,7 +80,6 @@ export const TransitionsPanel: React.FC = () => {
       outgoingId = selectedClipIds[0] ?? null;
       incomingId = selectedClipIds[1] ?? null;
     } else if (selectedClipIds.length === 1) {
-      // Find the selected clip and check if there's an adjacent clip on the same track
       const activeId = selectedClipIds[0];
       for (const track of project.tracks) {
         const clipIndex = track.clips.findIndex((c) => c.id === activeId);
@@ -153,7 +103,6 @@ export const TransitionsPanel: React.FC = () => {
       setLastAppliedId(item.id);
       setTimeout(() => setLastAppliedId(null), 2000);
     } else {
-      // Informative quick status
       setLastAppliedId(item.id);
       setTimeout(() => setLastAppliedId(null), 1500);
     }
@@ -167,53 +116,75 @@ export const TransitionsPanel: React.FC = () => {
         color: 'var(--kuro-text-primary)',
       }}
     >
-      {/* Search & Category Filter */}
+      {/* ── Top Search & Filters ── */}
       <div className="p-3 border-b space-y-2.5 shrink-0" style={{ borderColor: 'var(--kuro-border-subtle)' }}>
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-2" style={{ color: 'var(--kuro-text-muted)' }} />
-          <input
-            type="text"
-            placeholder="Search transitions..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 rounded-lg text-xs outline-none transition"
-            style={{
-              background: 'var(--kuro-bg-elevated)',
-              border: '1px solid var(--kuro-border-subtle)',
-              color: 'var(--kuro-text-primary)',
-            }}
-          />
-        </div>
-
-        {/* Categories Pills */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar">
-          {['all', 'dissolves', 'motion', 'cinematic', 'stylized'].map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className="px-2.5 py-1 rounded-md text-[11px] capitalize whitespace-nowrap font-medium transition"
+        {/* Search Bar & Sort Dropdown */}
+        <div className="flex gap-2 items-center">
+          <div className="relative flex-1">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2" style={{ color: 'var(--kuro-text-muted)' }} />
+            <input
+              type="text"
+              placeholder="Search 50 transitions (whips, glitch, flares, wipes...)"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 rounded-lg text-xs outline-none transition"
               style={{
-                background: selectedCategory === cat ? 'var(--kuro-text-primary)' : 'var(--kuro-bg-elevated)',
-                color: selectedCategory === cat ? 'var(--kuro-bg-canvas)' : 'var(--kuro-text-muted)',
+                background: 'var(--kuro-bg-elevated)',
+                border: '1px solid var(--kuro-border-subtle)',
+                color: 'var(--kuro-text-primary)',
               }}
+            />
+          </div>
+
+          {/* Sort Selector */}
+          <div className="flex items-center gap-1">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortOption)}
+              className="bg-[var(--kuro-bg-elevated)] border border-[var(--kuro-border-subtle)] text-[11px] rounded-lg px-2 py-1.5 text-[var(--kuro-text-secondary)] focus:outline-none cursor-pointer"
             >
-              {cat}
-            </button>
-          ))}
+              <option value="popular">Popular First</option>
+              <option value="name">Alphabetical (A-Z)</option>
+              <option value="category">By Category</option>
+              <option value="duration">By Duration</option>
+            </select>
+          </div>
         </div>
 
-        {/* Duration Control */}
+        {/* Categories Horizontal Tabs */}
+        <div className="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar">
+          {CATEGORIES.map((cat) => {
+            const Icon = cat.icon;
+            const isSelected = selectedCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className="px-2.5 py-1 rounded-md text-[11px] whitespace-nowrap font-medium transition flex items-center gap-1 cursor-pointer"
+                style={{
+                  background: isSelected ? 'var(--kuro-text-primary)' : 'var(--kuro-bg-elevated)',
+                  color: isSelected ? 'var(--kuro-bg-canvas)' : 'var(--kuro-text-muted)',
+                }}
+              >
+                <Icon className="w-3 h-3" />
+                <span>{cat.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Duration Quick Presets */}
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-1.5" style={{ color: 'var(--kuro-text-secondary)' }}>
-            <Clock className="w-3 h-3" />
-            <span className="text-[11px] font-medium">Default Duration:</span>
+            <Clock className="w-3 h-3 text-blue-400" />
+            <span className="text-[11px] font-medium">Transition Duration:</span>
           </div>
           <div className="flex items-center gap-1">
-            {[0.5, 1.0, 1.5, 2.0].map((d) => (
+            {[0.3, 0.5, 0.8, 1.0, 1.5, 2.0].map((d) => (
               <button
                 key={d}
                 onClick={() => setDurationSec(d)}
-                className="px-1.5 py-0.5 rounded text-[10px] font-mono transition"
+                className="px-1.5 py-0.5 rounded text-[10px] font-mono transition cursor-pointer"
                 style={{
                   background: durationSec === d ? 'var(--kuro-bg-muted)' : 'transparent',
                   color: durationSec === d ? 'var(--kuro-text-primary)' : 'var(--kuro-text-muted)',
@@ -227,9 +198,9 @@ export const TransitionsPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Transition Grid List */}
+      {/* ── Transition Card Grid ── */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {filteredTransitions.map((item) => {
+        {processedTransitions.map((item) => {
           const isApplied = lastAppliedId === item.id;
 
           return (
@@ -242,14 +213,14 @@ export const TransitionsPanel: React.FC = () => {
                 e.dataTransfer.setData('text/plain', JSON.stringify({ kuroType: 'transition', data: payload }));
                 e.dataTransfer.effectAllowed = 'copyMove';
               }}
-              className="group p-2.5 rounded-lg border flex items-center justify-between gap-3 transition hover:shadow-sm cursor-grab active:cursor-grabbing"
-              title="Drag onto timeline between clips, or click Apply"
+              className="group p-2.5 rounded-lg border flex items-center justify-between gap-3 transition hover:shadow-sm cursor-grab active:cursor-grabbing hover:border-white/30"
+              title="Drag onto timeline seam or cut between clips, or click Apply"
               style={{
                 background: 'var(--kuro-bg-elevated)',
                 borderColor: 'var(--kuro-border-subtle)',
               }}
             >
-              {/* Preview Graphic */}
+              {/* Graphic Icon Thumbnail */}
               <div
                 className="w-10 h-10 rounded-md border flex items-center justify-center shrink-0 relative overflow-hidden transition group-hover:scale-105"
                 style={{
@@ -273,6 +244,11 @@ export const TransitionsPanel: React.FC = () => {
                   <span className="font-semibold text-xs truncate" style={{ color: 'var(--kuro-text-primary)' }}>
                     {item.name}
                   </span>
+                  {item.badge && (
+                    <span className="text-[9px] font-bold px-1 rounded uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                      {item.badge}
+                    </span>
+                  )}
                   <span
                     className="text-[9px] uppercase px-1 rounded font-mono"
                     style={{
@@ -291,7 +267,7 @@ export const TransitionsPanel: React.FC = () => {
               {/* Action Button */}
               <button
                 onClick={() => handleApplyTransition(item)}
-                className="studio-btn text-[11px] px-2.5 py-1 font-medium shrink-0 flex items-center gap-1 transition"
+                className="studio-btn text-[11px] px-2.5 py-1 font-medium shrink-0 flex items-center gap-1 transition cursor-pointer"
                 style={{
                   background: isApplied ? 'var(--kuro-text-primary)' : 'var(--kuro-bg-surface)',
                   color: isApplied ? 'var(--kuro-bg-canvas)' : 'var(--kuro-text-primary)',
@@ -315,11 +291,11 @@ export const TransitionsPanel: React.FC = () => {
           );
         })}
 
-        {filteredTransitions.length === 0 && (
+        {processedTransitions.length === 0 && (
           <div className="text-center py-8" style={{ color: 'var(--kuro-text-muted)' }}>
             <Film className="w-8 h-8 mx-auto mb-2 opacity-40" />
             <p className="text-xs font-medium">No transitions found</p>
-            <p className="text-[11px] opacity-70 mt-0.5">Try searching with another keyword</p>
+            <p className="text-[11px] opacity-70 mt-0.5">Try searching with another keyword or category</p>
           </div>
         )}
       </div>
@@ -333,8 +309,8 @@ export const TransitionsPanel: React.FC = () => {
           color: 'var(--kuro-text-muted)',
         }}
       >
-        <span>Select adjacent clips on timeline to apply</span>
-        <span className="font-mono">{filteredTransitions.length} available</span>
+        <span>Drag to cut seam or select adjacent clips</span>
+        <span className="font-mono">{processedTransitions.length} of 50 visible</span>
       </div>
     </div>
   );
