@@ -99,6 +99,14 @@ export const App: React.FC = () => {
         return;
       }
 
+      // Ctrl + M or Ctrl + E: Open Export Modal
+      if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyM' || e.code === 'KeyE')) {
+        e.preventDefault();
+        const { modalStore } = await import('./stores/useModalStore');
+        modalStore.openModal('export');
+        return;
+      }
+
       // Ctrl + K: Split clip at playhead
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK') {
         e.preventDefault();
