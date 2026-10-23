@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { layoutStore } from '../../stores/useLayoutStore';
@@ -25,6 +25,7 @@ export const PreviewMonitor: React.FC = () => {
   const [monitorVolume, setMonitorVolume] = useState(1.0);
   const [isMuted, setIsMuted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   // Track which blobUrl the video element is currently loaded with
   const loadedBlobUrlRef = useRef<string | null>(null);
   // Flag to prevent seek loops: true while we are seeking programmatically
@@ -47,16 +48,28 @@ export const PreviewMonitor: React.FC = () => {
     };
   }, []);
 
+  // Cleanup audio elements on unmount
+  useEffect(() => {
+    return () => {
+      audioElementsRef.current.forEach((el) => {
+        el.pause();
+        el.src = '';
+      });
+      audioElementsRef.current.clear();
+    };
+  }, []);
+
   // Derived state from stores (computed fresh every render)
   const project = editorStore.getProject();
   const playheadTicks = timelineStore.getPlayheadTicks();
   const isPlaying = timelineStore.getIsPlaying();
   const selectedClipIds = timelineStore.getSelectedClipIds();
 
-  // ─── Active clip resolution ──────────────────────────────────────────────
+  // ─── Active video clip resolution ──────────────────────────────────────────
   // Find the highest-priority video clip at the current playhead position.
-  // Overlay tracks (rendered first in orderedTracks) win over V1.
   let activeClip: (typeof project.tracks[0]['clips'][0]) | undefined = undefined;
+  let activeVideoTrack: (typeof project.tracks[0]) | undefined = undefined;
+
   for (const track of project.tracks) {
     if (track.kind === 'video' && !track.muted && !track.hidden) {
       const hit = track.clips.find(
@@ -66,17 +79,21 @@ export const PreviewMonitor: React.FC = () => {
       );
       if (hit) {
         activeClip = hit;
+        activeVideoTrack = track;
         break;
       }
     }
   }
 
-  // Fallback: show the selected clip even if playhead is not on it (so user sees
-  // what they selected in the bin or timeline)
+  // Fallback: show the selected clip even if playhead is not on it
   if (!activeClip && selectedClipIds[0]) {
     for (const track of project.tracks) {
       const found = track.clips.find((c) => c.id === selectedClipIds[0]);
-      if (found) { activeClip = found; break; }
+      if (found) {
+        activeClip = found;
+        activeVideoTrack = track;
+        break;
+      }
     }
   }
 
@@ -87,9 +104,7 @@ export const PreviewMonitor: React.FC = () => {
   const activeBlobUrl = (activeAsset?.metadata as Record<string, unknown> | undefined)
     ?.['blobUrl'] as string | undefined;
 
-  // ─── HTML5 video element management ─────────────────────────────────────
-  // Only load/reload the video element when the source actually changes.
-  // Using a useEffect + ref so we don't hammer the element every rAF tick.
+  // ─── HTML5 video element source management ─────────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -105,13 +120,108 @@ export const PreviewMonitor: React.FC = () => {
     }
   }, [activeBlobUrl]);
 
-  // ─── Play / Pause sync ───────────────────────────────────────────────────
+  // ─── Video volume and mute synchronization ─────────────────────────────────
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.volume = monitorVolume;
+    video.muted = isMuted || !!activeVideoTrack?.muted;
+  }, [monitorVolume, isMuted, activeVideoTrack?.muted]);
+
+  // ─── Multi-Track Audio Playback Synchronization ─────────────────────────────
+  // Finds all active audio clips on audio tracks at the current playhead
+  const activeAudioItems = useMemo(() => {
+    const list: Array<{
+      track: (typeof project.tracks)[0];
+      clip: (typeof project.tracks)[0]['clips'][0];
+      asset?: (typeof project.assets)[0];
+      blobUrl?: string;
+      synthesizeType?: string;
+    }> = [];
+
+    for (const track of project.tracks) {
+      if (track.kind === 'audio' && !track.hidden) {
+        const clip = track.clips.find(
+          (c) => playheadTicks >= c.timelineStartTicks && playheadTicks < c.timelineStartTicks + c.durationTicks
+        );
+        if (clip) {
+          const asset = project.assets.find((a) => a.id === clip.assetId);
+          const blobUrl = (asset?.metadata as Record<string, unknown> | undefined)?.['blobUrl'] as string | undefined;
+          const synthesizeType = (asset?.metadata as Record<string, unknown> | undefined)?.['synthesizeType'] as string | undefined;
+          list.push({
+            track,
+            clip,
+            asset,
+            blobUrl,
+            synthesizeType,
+          });
+        }
+      }
+    }
+    return list;
+  }, [project.tracks, project.assets, playheadTicks]);
+
+  // Sync Audio Elements for all audio tracks simultaneously
+  useEffect(() => {
+    const audioMap = audioElementsRef.current;
+    const activeTrackIds = new Set<string>();
+
+    for (const item of activeAudioItems) {
+      activeTrackIds.add(item.track.id);
+      if (!item.blobUrl) continue;
+
+      let el = audioMap.get(item.track.id);
+      if (!el) {
+        el = new Audio();
+        el.preload = 'auto';
+        audioMap.set(item.track.id, el);
+      }
+
+      if (el.src !== item.blobUrl) {
+        el.src = item.blobUrl;
+        el.load();
+      }
+
+      const clipVol = item.clip.audio?.volume ?? 1.0;
+      el.volume = Math.max(0, Math.min(1, monitorVolume * clipVol));
+      el.muted = isMuted || !!item.track.muted;
+
+      const clipOffsetSec = (playheadTicks - item.clip.timelineStartTicks) / project.timelineTimebase;
+      const targetTime = Math.max(0, clipOffsetSec);
+
+      if (isPlaying) {
+        if (Math.abs(el.currentTime - targetTime) > 0.2) {
+          el.currentTime = targetTime;
+        }
+        if (el.paused) {
+          el.play().catch(() => {});
+        }
+      } else {
+        if (!el.paused) {
+          el.pause();
+        }
+        if (Math.abs(el.currentTime - targetTime) > 0.05) {
+          el.currentTime = targetTime;
+        }
+      }
+    }
+
+    // Pause audio on tracks that have no active clip or when not playing
+    audioMap.forEach((el, trackId) => {
+      if (!activeTrackIds.has(trackId) || !isPlaying) {
+        if (!el.paused) {
+          el.pause();
+        }
+      }
+    });
+  }, [activeAudioItems, isPlaying, playheadTicks, monitorVolume, isMuted, project.timelineTimebase]);
+
+  // ─── Play / Pause sync for Video ───────────────────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !activeBlobUrl) return;
 
     if (isPlaying) {
-      // Prevent double-play if already playing (avoids DOMException on some browsers)
       if (video.paused) {
         video.play().catch(() => {});
       }
@@ -122,9 +232,7 @@ export const PreviewMonitor: React.FC = () => {
     }
   }, [isPlaying, activeBlobUrl]);
 
-  // ─── Seek sync: playhead → video currentTime ─────────────────────────────
-  // Only seek when the user scrubs (not during normal playback, to avoid jitter).
-  // We detect "user scrub" by checking if the video is paused or if the drift is large.
+  // ─── Seek sync: playhead → video currentTime ───────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !activeClip || !activeBlobUrl) return;
@@ -132,39 +240,46 @@ export const PreviewMonitor: React.FC = () => {
     const clipOffsetSec = (playheadTicks - activeClip.timelineStartTicks) / project.timelineTimebase;
     const clampedOffset = Math.max(0, clipOffsetSec);
 
-    // Only force-seek when NOT playing (user is scrubbing) or when drift is large (>0.5s)
+    // Only force-seek when NOT playing (scrubbing) or when drift is large (>0.35s)
     const drift = Math.abs(video.currentTime - clampedOffset);
-    if (!isPlaying || drift > 0.5) {
+    if (!isPlaying || drift > 0.35) {
       isSyncSeekingRef.current = true;
       video.currentTime = clampedOffset;
     }
-  }, [playheadTicks, activeClip?.id, activeBlobUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playheadTicks, activeClip?.id, activeBlobUrl, isPlaying, project.timelineTimebase]);
 
-  // ─── Video → playhead sync during playback ───────────────────────────────
-  // When video is playing, let the VIDEO drive the playhead (more accurate than rAF).
-  // The store's rAF clock is still running but we override it here.
+  // ─── Video drift correction ────────────────────────────────────────────────
   const handleVideoTimeUpdate = useCallback(() => {
     const video = videoRef.current;
     if (!video || !activeClip || isSyncSeekingRef.current) return;
     if (!timelineStore.getIsPlaying()) return;
 
-    const newTicks = Math.round(
+    const videoTicks = Math.round(
       activeClip.timelineStartTicks + video.currentTime * project.timelineTimebase
     );
-    // Only update store if the video is ahead — don't let rAF and video fight
-    timelineStore.setPlayheadTicks(newTicks);
+    // If video significantly drifts by more than 0.35s, resync store
+    const diff = Math.abs(videoTicks - timelineStore.getPlayheadTicks());
+    if (diff > project.timelineTimebase * 0.35) {
+      timelineStore.setPlayheadTicks(videoTicks);
+    }
   }, [activeClip, project.timelineTimebase]);
 
   const handleVideoSeeked = useCallback(() => {
-    // Clear the sync-seek flag so timeupdate events are processed again
     isSyncSeekingRef.current = false;
   }, []);
 
   const handleVideoEnded = useCallback(() => {
-    timelineStore.setIsPlaying(false);
-  }, []);
+    // Only stop playback if we reached the end of the entire timeline
+    const totalTicks = project.tracks.reduce(
+      (max, t) => t.clips.reduce((m, c) => Math.max(m, c.timelineStartTicks + c.durationTicks), max),
+      0
+    );
+    if (timelineStore.getPlayheadTicks() >= totalTicks) {
+      timelineStore.setIsPlaying(false);
+    }
+  }, [project.tracks]);
 
-  // ─── Timecode & transport ─────────────────────────────────────────────────
+  // ─── Timecode & transport ──────────────────────────────────────────────────
   const timecode = formatTimecode(playheadTicks, {
     fpsNumerator: project.fpsNumerator,
     fpsDenominator: project.fpsDenominator,
@@ -187,7 +302,6 @@ export const PreviewMonitor: React.FC = () => {
     timelineStore.togglePlayback();
   };
 
-  // ─── Total timeline duration for progress display ─────────────────────────
   const totalTicks = project.tracks.reduce(
     (max, t) =>
       t.clips.reduce(
@@ -274,7 +388,7 @@ export const PreviewMonitor: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Video Viewport Area ── letterboxed 16:9, never overlays transport */}
+      {/* Video Viewport Area */}
       <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-2 relative overflow-hidden bg-[var(--kuro-bg-canvas)]">
         <div
           className="relative rounded border border-[var(--kuro-border-subtle)] shadow-2xl overflow-hidden bg-black"
@@ -286,20 +400,19 @@ export const PreviewMonitor: React.FC = () => {
             height: 'auto',
           }}
         >
-          {/* Always mount the video element (hidden when not in use) so the ref is always valid */}
+          {/* Main Video Element */}
           <video
             ref={videoRef}
             className={`w-full h-full object-contain pointer-events-none absolute inset-0 ${
               activeBlobUrl && activeAsset?.type !== 'image' ? 'opacity-100' : 'opacity-0'
             }`}
-            muted={isMuted}
             playsInline
             onTimeUpdate={handleVideoTimeUpdate}
             onSeeked={handleVideoSeeked}
             onEnded={handleVideoEnded}
           />
 
-          {/* Image overlay */}
+          {/* Image Overlay */}
           {activeBlobUrl && activeAsset?.type === 'image' && (
             <img
               src={activeBlobUrl}
@@ -308,7 +421,7 @@ export const PreviewMonitor: React.FC = () => {
             />
           )}
 
-          {/* Title card overlay */}
+          {/* Title Card Overlay */}
           {!activeBlobUrl && activeAsset?.metadata?.['isTitle'] && (
             <div className="w-full h-full bg-black flex items-center justify-center p-8 absolute inset-0">
               <span className="text-white text-2xl font-bold tracking-wider drop-shadow-lg text-center uppercase">
@@ -358,7 +471,7 @@ export const PreviewMonitor: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Transport Bar ─ shrink-0 ensures it never gets pushed offscreen */}
+      {/* Transport Bar */}
       <div className="h-11 shrink-0 px-4 bg-[var(--kuro-bg-panel)] border-t border-[var(--kuro-border-subtle)] flex items-center justify-between text-xs z-10 transition-colors">
         {/* Timecode */}
         <div className="font-mono text-xs font-bold text-[var(--kuro-text-primary)] tracking-wider bg-[var(--kuro-bg-canvas)] px-2.5 py-1 rounded border border-[var(--kuro-border-subtle)] tabular-nums">
@@ -421,7 +534,6 @@ export const PreviewMonitor: React.FC = () => {
                 const v = parseFloat(e.target.value);
                 setMonitorVolume(v);
                 setIsMuted(false);
-                if (videoRef.current) videoRef.current.volume = v;
               }}
               className="w-16 accent-[var(--kuro-text-primary)] cursor-pointer"
             />

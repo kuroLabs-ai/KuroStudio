@@ -3,6 +3,7 @@ import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { AddClipCommand } from '@kuro/editor-core';
 import { generateId } from '@kuro/shared';
+import { AssetReference } from '@kuro/project-format';
 import {
   Music,
   Search,
@@ -157,6 +158,21 @@ export const AudioPanel: React.FC = () => {
 
     const assetId = generateId('asset_audio');
     const clipDurationTicks = Math.round(sample.durationSec * project.timelineTimebase);
+    const newAsset: AssetReference = {
+      id: assetId,
+      name: sample.name,
+      type: 'audio',
+      storageMode: 'linked',
+      filePath: 'audio://' + sample.id,
+      fileSizeBytes: 0,
+      durationTicks: clipDurationTicks,
+      metadata: { isAudioSample: true, synthesizeType: sample.synthesizeType },
+    };
+    const curProj = editorStore.getProject();
+    editorStore.getEditorState().setProject({
+      ...curProj,
+      assets: [...curProj.assets, newAsset],
+    });
 
     const newClip = {
       id: generateId('clip_audio'),
