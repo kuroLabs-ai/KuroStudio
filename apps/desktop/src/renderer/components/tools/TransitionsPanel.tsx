@@ -126,20 +126,20 @@ export const TransitionsPanel: React.FC = () => {
     let incomingId: string | null = null;
 
     if (selectedClipIds.length >= 2) {
-      outgoingId = selectedClipIds[0];
-      incomingId = selectedClipIds[1];
+      outgoingId = selectedClipIds[0] ?? null;
+      incomingId = selectedClipIds[1] ?? null;
     } else if (selectedClipIds.length === 1) {
       // Find the selected clip and check if there's an adjacent clip on the same track
       const activeId = selectedClipIds[0];
       for (const track of project.tracks) {
         const clipIndex = track.clips.findIndex((c) => c.id === activeId);
         if (clipIndex !== -1 && track.clips[clipIndex + 1]) {
-          outgoingId = track.clips[clipIndex].id;
-          incomingId = track.clips[clipIndex + 1].id;
+          outgoingId = track.clips[clipIndex]?.id ?? null;
+          incomingId = track.clips[clipIndex + 1]?.id ?? null;
           break;
         } else if (clipIndex > 0) {
-          outgoingId = track.clips[clipIndex - 1].id;
-          incomingId = track.clips[clipIndex].id;
+          outgoingId = track.clips[clipIndex - 1]?.id ?? null;
+          incomingId = track.clips[clipIndex]?.id ?? null;
           break;
         }
       }

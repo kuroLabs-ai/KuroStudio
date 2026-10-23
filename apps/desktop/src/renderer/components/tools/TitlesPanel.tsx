@@ -3,6 +3,7 @@ import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { AddClipCommand } from '@kuro/editor-core';
 import { generateId } from '@kuro/shared';
+import { Clip } from '@kuro/project-format';
 import {
   Type,
   Search,
@@ -89,19 +90,20 @@ export const TitlesPanel: React.FC = () => {
     const assetId = generateId('asset_title');
     const clipDurationTicks = Math.round(4.0 * project.timelineTimebase); // 4 seconds default
 
-    const newClip = {
+    const newClip: Clip = {
       id: generateId('clip_title'),
       assetId,
+      trackId: videoTrack.id,
       timelineStartTicks: playheadTicks,
       durationTicks: clipDurationTicks,
-      inPointTicks: 0,
-      outPointTicks: clipDurationTicks,
+      sourceInTicks: 0,
+      sourceOutTicks: clipDurationTicks,
       effects: [],
     };
 
     const cmd = new AddClipCommand(newClip, videoTrack.id);
-    if (cmd.canExecute({ getProject: () => editorStore.getProject(), setProject: () => {} })) {
-      await editorStore.executeCommand(cmd);
+    const success = await editorStore.executeCommand(cmd);
+    if (success) {
       setAddedId(preset.id);
       setTimeout(() => setAddedId(null), 1800);
     } else {
@@ -111,7 +113,7 @@ export const TitlesPanel: React.FC = () => {
         const cEnd = c.timelineStartTicks + c.durationTicks;
         if (cEnd > maxEnd) maxEnd = cEnd;
       }
-      const adjustedClip = { ...newClip, timelineStartTicks: maxEnd };
+      const adjustedClip: Clip = { ...newClip, timelineStartTicks: maxEnd };
       const fallbackCmd = new AddClipCommand(adjustedClip, videoTrack.id);
       await editorStore.executeCommand(fallbackCmd);
       setAddedId(preset.id);

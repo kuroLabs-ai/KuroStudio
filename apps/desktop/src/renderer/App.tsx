@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+﻿import React, { useEffect } from 'react';
 import { AppLayout } from './components/layout/AppLayout';
 import { editorStore } from './stores/useEditorStore';
 import { timelineStore } from './stores/useTimelineStore';
@@ -8,9 +8,15 @@ import { DeleteClipCommand, SplitClipCommand } from '@kuro/editor-core';
 export const App: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
-      // Ignore if user is currently typing in an input or textarea
+      // Ignore if user is currently typing in a text input or textarea.
+      // Range inputs (sliders) should still pass through so Space/arrows work
+      // while an Inspector slider is focused.
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      const isTextInput =
+        (target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'range') ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable;
+      if (isTextInput) {
         return;
       }
 
@@ -200,3 +206,4 @@ export const App: React.FC = () => {
 };
 
 export default App;
+

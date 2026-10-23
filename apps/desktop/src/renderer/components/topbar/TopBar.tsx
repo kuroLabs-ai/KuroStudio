@@ -75,12 +75,13 @@ export const TopBar: React.FC = () => {
 
         <div className="flex items-center gap-2 text-xs">
           <span className="font-medium text-[var(--kuro-text-secondary)]">{project.name}</span>
-          <Circle
-            className={`w-1.5 h-1.5 fill-current ${
-              isDirty ? 'text-[var(--kuro-text-primary)] animate-pulse' : 'text-[var(--kuro-text-faint)]'
-            }`}
-            title={isDirty ? 'Unsaved changes' : 'All changes saved'}
-          />
+          <span title={isDirty ? 'Unsaved changes' : 'All changes saved'}>
+            <Circle
+              className={`w-1.5 h-1.5 fill-current ${
+                isDirty ? 'text-[var(--kuro-text-primary)] animate-pulse' : 'text-[var(--kuro-text-faint)]'
+              }`}
+            />
+          </span>
           <button
             onClick={handleSave}
             disabled={!isDirty}
