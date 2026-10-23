@@ -41,36 +41,98 @@ function computeTransformStyle(clip?: any): React.CSSProperties {
 function computeFilterStyle(clip?: any): string | undefined {
   if (!clip || !clip.effects || clip.effects.length === 0) return undefined;
   const filters: string[] = [];
+
+  // Parse any bypassed nodes from node graph
+  const nodeGraphEff = clip.effects.find((e: any) => e.effectType === 'nodeGraph');
+  let bypassedNodeIds: string[] = [];
+  if (nodeGraphEff && nodeGraphEff.parameters?.bypassed) {
+    try {
+      bypassedNodeIds = JSON.parse(nodeGraphEff.parameters.bypassed as string);
+    } catch {
+      bypassedNodeIds = [];
+    }
+  }
+
   for (const eff of clip.effects) {
     if (!eff.enabled) continue;
+
+    // Check node graph bypass
+    if (bypassedNodeIds.includes('node-01') && ['lift', 'gamma', 'gain', 'offset'].includes(eff.effectType)) continue;
+    if (bypassedNodeIds.includes('node-02') && eff.effectType === 'curves') continue;
+    if (bypassedNodeIds.includes('node-04') && ['vignette', 'grain', 'blur', 'sepia', 'invert'].includes(eff.effectType)) continue;
+
     const val = Number(eff.parameters.value ?? 0);
     if (eff.effectType === 'brightness') filters.push(`brightness(${val})`);
     if (eff.effectType === 'contrast') filters.push(`contrast(${val})`);
     if (eff.effectType === 'saturation') filters.push(`saturate(${val})`);
+    if (eff.effectType === 'vibrance' && val !== 0) {
+      filters.push(`saturate(${(1.0 + val * 0.005).toFixed(3)})`);
+    }
     if (eff.effectType === 'blur' && val > 0) filters.push(`blur(${val}px)`);
     if (eff.effectType === 'exposure' && val !== 0) {
       // Exposure EV to brightness multiplier: 2^EV
       filters.push(`brightness(${Math.pow(2, val).toFixed(3)})`);
     }
     if (eff.effectType === 'temperature' && val !== 0) {
-      if (val > 0) filters.push(`sepia(${val * 0.004}) hue-rotate(-${val * 0.12}deg)`);
-      else filters.push(`hue-rotate(${Math.abs(val) * 0.2}deg)`);
+      if (val > 0) filters.push(`sepia(${(val * 0.004).toFixed(3)}) hue-rotate(-${(val * 0.12).toFixed(1)}deg)`);
+      else filters.push(`hue-rotate(${(Math.abs(val) * 0.2).toFixed(1)}deg)`);
     }
     if (eff.effectType === 'tint' && val !== 0) {
-      filters.push(`hue-rotate(${val * 0.4}deg)`);
+      filters.push(`hue-rotate(${(val * 0.4).toFixed(1)}deg)`);
     }
     if (eff.effectType === 'hue' && val !== 0) {
       filters.push(`hue-rotate(${val}deg)`);
     }
     if (eff.effectType === 'sepia' && val > 0) {
-      filters.push(`sepia(${val / 100})`);
+      filters.push(`sepia(${(val / 100).toFixed(2)})`);
     }
     if (eff.effectType === 'invert' && val > 0) {
-      filters.push(`invert(${val / 100})`);
+      filters.push(`invert(${(val / 100).toFixed(2)})`);
     }
     if (eff.effectType === 'vignette' && val > 0) {
-      // Subtle contrast + brightness edge simulation in CSS
-      filters.push(`drop-shadow(0 0 ${val * 0.8}px rgba(0,0,0,${val * 0.01}))`);
+      filters.push(`drop-shadow(0 0 ${(val * 0.8).toFixed(1)}px rgba(0,0,0,${(val * 0.01).toFixed(2)}))`);
+    }
+    if (eff.effectType === 'whites' && val !== 0) {
+      filters.push(`brightness(${(1.0 + val * 0.004).toFixed(3)})`);
+    }
+    if (eff.effectType === 'blacks' && val !== 0) {
+      filters.push(`contrast(${(1.0 + val * 0.004).toFixed(3)})`);
+    }
+    if (eff.effectType === 'highlights' && val !== 0) {
+      filters.push(`brightness(${(1.0 + val * 0.003).toFixed(3)})`);
+    }
+    if (eff.effectType === 'shadows' && val !== 0) {
+      filters.push(`brightness(${(1.0 + val * 0.003).toFixed(3)})`);
+    }
+
+    // DaVinci Primary Color Wheels: Lift, Gamma, Gain, Offset
+    if (eff.effectType === 'lift') {
+      const luma = Number(eff.parameters.luma ?? 0);
+      const sat = Number(eff.parameters.sat ?? 0);
+      const hue = Number(eff.parameters.hue ?? 0);
+      if (luma !== 0) filters.push(`brightness(${(1.0 + luma * 0.35).toFixed(3)})`);
+      if (sat > 5) filters.push(`hue-rotate(${(hue * 0.1).toFixed(1)}deg)`);
+    }
+    if (eff.effectType === 'gamma') {
+      const luma = Number(eff.parameters.luma ?? 0);
+      const sat = Number(eff.parameters.sat ?? 0);
+      const hue = Number(eff.parameters.hue ?? 0);
+      if (luma !== 0) filters.push(`contrast(${(1.0 + luma * 0.4).toFixed(3)})`);
+      if (sat > 5) filters.push(`hue-rotate(${(hue * 0.15).toFixed(1)}deg)`);
+    }
+    if (eff.effectType === 'gain') {
+      const luma = Number(eff.parameters.luma ?? 0);
+      const sat = Number(eff.parameters.sat ?? 0);
+      const hue = Number(eff.parameters.hue ?? 0);
+      if (luma !== 0) filters.push(`brightness(${(1.0 + luma * 0.5).toFixed(3)})`);
+      if (sat > 5) filters.push(`hue-rotate(${(hue * 0.15).toFixed(1)}deg)`);
+    }
+    if (eff.effectType === 'offset') {
+      const luma = Number(eff.parameters.luma ?? 0);
+      const sat = Number(eff.parameters.sat ?? 0);
+      const hue = Number(eff.parameters.hue ?? 0);
+      if (luma !== 0) filters.push(`brightness(${(1.0 + luma * 0.4).toFixed(3)})`);
+      if (sat > 5) filters.push(`hue-rotate(${(hue * 0.2).toFixed(1)}deg)`);
     }
   }
   return filters.length > 0 ? filters.join(' ') : undefined;

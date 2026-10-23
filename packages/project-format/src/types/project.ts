@@ -60,7 +60,33 @@ export interface ClipAudio {
 
 export interface EffectInstance {
   id: string;
-  effectType: 'brightness' | 'contrast' | 'saturation' | 'opacity' | 'blur' | 'lut' | 'temperature' | 'tint' | 'vignette' | 'sharpen' | 'exposure' | 'highlights' | 'shadows' | 'hue' | 'sepia' | 'invert';
+  effectType:
+    | 'brightness'
+    | 'contrast'
+    | 'saturation'
+    | 'opacity'
+    | 'blur'
+    | 'lut'
+    | 'temperature'
+    | 'tint'
+    | 'vignette'
+    | 'sharpen'
+    | 'exposure'
+    | 'highlights'
+    | 'shadows'
+    | 'whites'
+    | 'blacks'
+    | 'vibrance'
+    | 'hue'
+    | 'sepia'
+    | 'invert'
+    | 'grain'
+    | 'lift'
+    | 'gamma'
+    | 'gain'
+    | 'offset'
+    | 'curves'
+    | 'nodeGraph';
   enabled: boolean;
   parameters: Record<string, number | string | boolean>;
 }
