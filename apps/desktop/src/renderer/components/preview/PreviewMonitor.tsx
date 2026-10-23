@@ -18,6 +18,46 @@ import {
   Minimize2
 } from 'lucide-react';
 
+// ─── Visual Transform & Filter Helpers for Live Inspector Preview ───────────
+function computeTransformStyle(clip?: any): React.CSSProperties {
+  if (!clip || !clip.transform) return {};
+  const t = clip.transform;
+  const flipX = t.flipH ? -1 : 1;
+  const flipY = t.flipV ? -1 : 1;
+  const scaleX = (t.scaleX ?? 1.0) * flipX;
+  const scaleY = (t.scaleY ?? 1.0) * flipY;
+  const rot = t.rotation || 0;
+  const x = t.x || 0;
+  const y = t.y || 0;
+
+  return {
+    transform: `translate(${x}px, ${y}px) rotate(${rot}deg) scale(${scaleX}, ${scaleY})`,
+    opacity: t.opacity ?? 1.0,
+    mixBlendMode: (t.blendMode as any) || 'normal',
+  };
+}
+
+function computeFilterStyle(clip?: any): string | undefined {
+  if (!clip || !clip.effects || clip.effects.length === 0) return undefined;
+  const filters: string[] = [];
+  for (const eff of clip.effects) {
+    if (!eff.enabled) continue;
+    const val = Number(eff.parameters.value ?? 1);
+    if (eff.effectType === 'brightness') filters.push(`brightness(${val})`);
+    if (eff.effectType === 'contrast') filters.push(`contrast(${val})`);
+    if (eff.effectType === 'saturation') filters.push(`saturate(${val})`);
+    if (eff.effectType === 'blur') filters.push(`blur(${val}px)`);
+    if (eff.effectType === 'temperature') {
+      if (val > 0) filters.push(`sepia(${val * 0.005}) hue-rotate(-${val * 0.15}deg)`);
+      else filters.push(`hue-rotate(${Math.abs(val) * 0.25}deg)`);
+    }
+    if (eff.effectType === 'tint') {
+      filters.push(`hue-rotate(${val * 0.5}deg)`);
+    }
+  }
+  return filters.length > 0 ? filters.join(' ') : undefined;
+}
+
 export const PreviewMonitor: React.FC = () => {
   const [, setTick] = useState(0);
   const [showSafeGuides, setShowSafeGuides] = useState(false);
@@ -444,6 +484,9 @@ export const PreviewMonitor: React.FC = () => {
 
             if (!state.isVideo) return null; // images/titles handled below
 
+            const transformStyle = computeTransformStyle(state.clip);
+            const filterStyle = computeFilterStyle(state.clip);
+
             return (
               <video
                 key={state.track.id}
@@ -454,7 +497,12 @@ export const PreviewMonitor: React.FC = () => {
                 }}
                 playsInline
                 className="pointer-events-none absolute inset-0 w-full h-full object-contain"
-                style={{ zIndex, visibility: isVisible ? 'visible' : 'hidden' }}
+                style={{
+                  zIndex,
+                  visibility: isVisible ? 'visible' : 'hidden',
+                  filter: filterStyle,
+                  ...transformStyle,
+                }}
               />
             );
           })}
@@ -464,29 +512,55 @@ export const PreviewMonitor: React.FC = () => {
             const zIndex = layer.layerIndex * 10 + 1;
 
             // 2. Photo / Image Layer (V1 Photo or V2 Overlay Photo - Same dimensions across all layers)
-            if (layer.isImage && layer.blobUrl) {
+            if (layer.isImage && layer.blobUrl && layer.clip) {
+              const imgTransform = computeTransformStyle(layer.clip);
+              const imgFilter = computeFilterStyle(layer.clip);
               return (
                 <img
                   key={layer.clip.id}
                   src={layer.blobUrl}
                   alt={layer.asset?.name || 'Image'}
                   className="pointer-events-none absolute select-none inset-0 w-full h-full object-contain"
-                  style={{ zIndex }}
+                  style={{
+                    zIndex,
+                    filter: imgFilter,
+                    ...imgTransform,
+                  }}
                 />
               );
             }
 
             // 3. Text / Title Layer (Overlay on Top of Everything)
-            if (layer.isTitle) {
+            if (layer.isTitle && layer.clip) {
+              const meta = (layer.asset?.metadata as Record<string, unknown> | undefined) || {};
+              const fontSize = Number(meta['fontSize'] || 28);
+              const fontFamily = (meta['fontFamily'] as string) || 'Inter';
+              const textColor = (meta['textColor'] as string) || '#ffffff';
+              const isBold = meta['isBold'] !== false;
+              const textAlign = (meta['textAlign'] as any) || 'center';
+              const showBg = meta['showBackground'] !== false;
+              const titleTransform = computeTransformStyle(layer.clip);
+
               return (
                 <div
                   key={layer.clip.id}
                   className="absolute inset-0 flex flex-col items-center justify-center p-8 select-none pointer-events-none"
-                  style={{ zIndex }}
+                  style={{ zIndex, ...titleTransform }}
                 >
-                  <div className="bg-black/65 px-6 py-2.5 rounded-lg border border-white/30 shadow-2xl backdrop-blur-xs">
-                    <span className="text-white text-2xl font-black tracking-wider uppercase text-center block drop-shadow-lg">
-                      {layer.titleText}
+                  <div
+                    className={`${showBg ? 'bg-black/70 border border-white/30 shadow-2xl backdrop-blur-xs' : ''} px-6 py-2.5 rounded-lg`}
+                  >
+                    <span
+                      style={{
+                        fontSize: `${fontSize}px`,
+                        fontFamily,
+                        color: textColor,
+                        fontWeight: isBold ? 800 : 500,
+                        textAlign,
+                      }}
+                      className="tracking-wider uppercase block drop-shadow-lg"
+                    >
+                      {(meta['text'] as string) || layer.titleText}
                     </span>
                   </div>
                 </div>
