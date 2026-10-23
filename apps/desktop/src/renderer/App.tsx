@@ -81,16 +81,34 @@ export const App: React.FC = () => {
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK') {
         e.preventDefault();
         const selectedClipIds = timelineStore.getSelectedClipIds();
-        const activeClipId = selectedClipIds[0];
-        if (!activeClipId) return;
+        let targetClipId = selectedClipIds[0];
 
         const project = editorStore.getProject();
         const playhead = timelineStore.getPlayheadTicks();
 
+        if (!targetClipId) {
+          for (const track of project.tracks) {
+            if (track.hidden || track.locked) continue;
+            const found = track.clips.find(
+              (c) => playhead > c.timelineStartTicks && playhead < c.timelineStartTicks + c.durationTicks
+            );
+            if (found) {
+              targetClipId = found.id;
+              break;
+            }
+          }
+        }
+
+        if (!targetClipId) return;
+
         for (const track of project.tracks) {
-          const clip = track.clips.find((c) => c.id === activeClipId);
+          const clip = track.clips.find((c) => c.id === targetClipId);
           if (clip && playhead > clip.timelineStartTicks && playhead < clip.timelineStartTicks + clip.durationTicks) {
-            await editorStore.executeCommand(new SplitClipCommand(clip.id, playhead));
+            const cmd = new SplitClipCommand(clip.id, playhead);
+            const success = await editorStore.executeCommand(cmd);
+            if (success && cmd.createdResult) {
+              timelineStore.selectClip(cmd.createdResult.rightClip.id);
+            }
             break;
           }
         }

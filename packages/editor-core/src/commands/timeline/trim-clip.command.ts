@@ -32,7 +32,8 @@ export class TrimClipCommand implements ICommand<Clip> {
         if (this.edge === 'start') {
           const newStart = clip.timelineStartTicks + this.deltaTicks;
           const newDuration = clip.durationTicks - this.deltaTicks;
-          const newSourceIn = clip.sourceInTicks + this.deltaTicks;
+          const origIn = Number.isFinite(clip.sourceInTicks) ? clip.sourceInTicks : 0;
+          const newSourceIn = origIn + this.deltaTicks;
           if (newStart < 0 || newDuration <= 0 || newSourceIn < 0) return false;
 
           // Check collision with previous clip if expanding backwards
@@ -70,19 +71,25 @@ export class TrimClipCommand implements ICommand<Clip> {
 
       affectedTrackId = track.id;
       const original = track.clips[clipIndex]!;
+      const originalSourceIn = Number.isFinite(original.sourceInTicks) ? original.sourceInTicks : 0;
+      const originalSourceOut = Number.isFinite(original.sourceOutTicks)
+        ? original.sourceOutTicks
+        : originalSourceIn + original.durationTicks;
 
       if (this.edge === 'start') {
         updatedClip = {
           ...original,
           timelineStartTicks: original.timelineStartTicks + this.deltaTicks,
           durationTicks: original.durationTicks - this.deltaTicks,
-          sourceInTicks: original.sourceInTicks + this.deltaTicks,
+          sourceInTicks: originalSourceIn + this.deltaTicks,
+          sourceOutTicks: originalSourceOut,
         };
       } else {
         updatedClip = {
           ...original,
           durationTicks: original.durationTicks + this.deltaTicks,
-          sourceOutTicks: original.sourceOutTicks + this.deltaTicks,
+          sourceInTicks: originalSourceIn,
+          sourceOutTicks: originalSourceOut + this.deltaTicks,
         };
       }
 
