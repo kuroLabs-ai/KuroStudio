@@ -13,6 +13,7 @@ export class SplitClipCommand implements ICommand<SplitClipResult> {
   public readonly description: string;
   public readonly riskLevel: CommandRiskLevel = 'medium';
 
+  public createdResult?: SplitClipResult;
   private targetClipId: string;
   private splitTick: TimelineTicks;
   private previousProjectState?: Project;
@@ -51,13 +52,27 @@ export class SplitClipCommand implements ICommand<SplitClipResult> {
 
       affectedTrackId = track.id;
       const original = track.clips[clipIndex]!;
+      const originalSourceIn = Number.isFinite(original.sourceInTicks) ? original.sourceInTicks : 0;
+      const originalSourceOut = Number.isFinite(original.sourceOutTicks)
+        ? original.sourceOutTicks
+        : originalSourceIn + original.durationTicks;
+
       const leftDuration = this.splitTick - original.timelineStartTicks;
       const rightDuration = original.durationTicks - leftDuration;
+
+      const speedRatio =
+        original.speedNumerator && original.speedDenominator
+          ? original.speedNumerator / original.speedDenominator
+          : 1;
+
+      const leftSourceDuration = Math.round(leftDuration * speedRatio);
+      const splitSourceTick = originalSourceIn + leftSourceDuration;
 
       const leftClip: Clip = {
         ...original,
         durationTicks: leftDuration,
-        sourceOutTicks: original.sourceInTicks + leftDuration,
+        sourceInTicks: originalSourceIn,
+        sourceOutTicks: splitSourceTick,
       };
 
       const rightClip: Clip = {
@@ -65,11 +80,12 @@ export class SplitClipCommand implements ICommand<SplitClipResult> {
         id: generateId('clip'),
         timelineStartTicks: this.splitTick,
         durationTicks: rightDuration,
-        sourceInTicks: leftClip.sourceOutTicks,
-        sourceOutTicks: original.sourceOutTicks,
+        sourceInTicks: splitSourceTick,
+        sourceOutTicks: originalSourceOut,
       };
 
       createdResult = { leftClip, rightClip };
+      this.createdResult = createdResult;
 
       const newClips = [...track.clips];
       newClips.splice(clipIndex, 1, leftClip, rightClip);

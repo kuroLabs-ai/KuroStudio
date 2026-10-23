@@ -155,10 +155,18 @@ export const PreviewMonitor: React.FC = () => {
       el.volume = Math.max(0, Math.min(1, monitorVolume * clipVolume));
       el.muted = isMuted || !!layer.track.muted;
 
-      const clipOffsetSec = (playheadTicks - layer.clip.timelineStartTicks) / project.timelineTimebase;
-      const targetTime = Math.max(0, clipOffsetSec);
+      const speedRatio =
+        layer.clip.speedNumerator && layer.clip.speedDenominator
+          ? layer.clip.speedNumerator / layer.clip.speedDenominator
+          : 1;
+
+      const sourceInTicks = Number.isFinite(layer.clip.sourceInTicks) ? layer.clip.sourceInTicks : 0;
+      const offsetTicksFromClipStart = playheadTicks - layer.clip.timelineStartTicks;
+      const sourceOffsetTicks = sourceInTicks + offsetTicksFromClipStart * speedRatio;
+      const targetTime = Math.max(0, sourceOffsetTicks / project.timelineTimebase);
 
       if (isPlaying) {
+        el.playbackRate = Math.max(0.1, speedRatio);
         // Sync seek if drifting by > 0.25s
         if (Math.abs(el.currentTime - targetTime) > 0.25) {
           el.currentTime = targetTime;
@@ -238,10 +246,18 @@ export const PreviewMonitor: React.FC = () => {
       el.volume = Math.max(0, Math.min(1, monitorVolume * clipVol));
       el.muted = isMuted || !!item.track.muted;
 
-      const clipOffsetSec = (playheadTicks - item.clip.timelineStartTicks) / project.timelineTimebase;
-      const targetTime = Math.max(0, clipOffsetSec);
+      const speedRatio =
+        item.clip.speedNumerator && item.clip.speedDenominator
+          ? item.clip.speedNumerator / item.clip.speedDenominator
+          : 1;
+
+      const sourceInTicks = Number.isFinite(item.clip.sourceInTicks) ? item.clip.sourceInTicks : 0;
+      const offsetTicksFromClipStart = playheadTicks - item.clip.timelineStartTicks;
+      const sourceOffsetTicks = sourceInTicks + offsetTicksFromClipStart * speedRatio;
+      const targetTime = Math.max(0, sourceOffsetTicks / project.timelineTimebase);
 
       if (isPlaying) {
+        el.playbackRate = Math.max(0.1, speedRatio);
         if (Math.abs(el.currentTime - targetTime) > 0.25) {
           el.currentTime = targetTime;
         }

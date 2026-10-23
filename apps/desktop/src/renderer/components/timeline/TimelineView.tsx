@@ -113,6 +113,20 @@ export const TimelineView: React.FC = () => {
     return null;
   }, [project.tracks, selectedClipIds]);
 
+  // Whether playhead is hovering over any clip that can be split
+  const clipUnderPlayhead = React.useMemo(() => {
+    for (const t of project.tracks) {
+      if (t.hidden || t.locked) continue;
+      const found = t.clips.find(
+        (c) => playheadTicks > c.timelineStartTicks && playheadTicks < c.timelineStartTicks + c.durationTicks
+      );
+      if (found) return found;
+    }
+    return null;
+  }, [project.tracks, playheadTicks]);
+
+  const canSplitAtPlayhead = selectedClipIds.length > 0 || !!clipUnderPlayhead;
+
   // Pixels per second calculation based on zoom
   const basePixelsPerSecond = 50;
   const pixelsPerSecond = basePixelsPerSecond * zoom;
@@ -395,6 +409,8 @@ export const TimelineView: React.FC = () => {
                         ...c,
                         timelineStartTicks: trimmingClip.currentStartTicks,
                         durationTicks: trimmingClip.currentDurationTicks,
+                        sourceInTicks: (c.sourceInTicks ?? 0) + deltaStart,
+                        sourceOutTicks: c.sourceOutTicks ?? ((c.sourceInTicks ?? 0) + c.durationTicks),
                       }
                     : c
                 ),
@@ -413,7 +429,12 @@ export const TimelineView: React.FC = () => {
                 ...t,
                 clips: t.clips.map((c) =>
                   c.id === trimmingClip.clipId
-                    ? { ...c, durationTicks: trimmingClip.currentDurationTicks }
+                    ? {
+                        ...c,
+                        durationTicks: trimmingClip.currentDurationTicks,
+                        sourceInTicks: c.sourceInTicks ?? 0,
+                        sourceOutTicks: (c.sourceOutTicks ?? ((c.sourceInTicks ?? 0) + c.durationTicks)) + deltaDur,
+                      }
                     : c
                 ),
               };
@@ -568,14 +589,33 @@ export const TimelineView: React.FC = () => {
 
   // ─── Split / Cut Actions ──────────────────────────────────────────────────
   const handleSplitAtPlayhead = async () => {
-    const activeClipId = selectedClipIds[0];
-    if (!activeClipId) return;
+    let targetClipId = selectedClipIds[0];
+
+    // If no clip selected, target the clip directly under the playhead
+    if (!targetClipId) {
+      for (const track of project.tracks) {
+        if (track.hidden || track.locked) continue;
+        const found = track.clips.find(
+          (c) => playheadTicks > c.timelineStartTicks && playheadTicks < c.timelineStartTicks + c.durationTicks
+        );
+        if (found) {
+          targetClipId = found.id;
+          break;
+        }
+      }
+    }
+
+    if (!targetClipId) return;
 
     for (const track of project.tracks) {
-      const clip = track.clips.find((c) => c.id === activeClipId);
+      const clip = track.clips.find((c) => c.id === targetClipId);
       if (clip) {
         if (playheadTicks > clip.timelineStartTicks && playheadTicks < clip.timelineStartTicks + clip.durationTicks) {
-          await editorStore.executeCommand(new SplitClipCommand(clip.id, playheadTicks));
+          const cmd = new SplitClipCommand(clip.id, playheadTicks);
+          const success = await editorStore.executeCommand(cmd);
+          if (success && cmd.createdResult) {
+            timelineStore.selectClip(cmd.createdResult.rightClip.id);
+          }
         }
         break;
       }
@@ -598,7 +638,11 @@ export const TimelineView: React.FC = () => {
     for (const track of project.tracks) {
       const clip = track.clips.find((c) => c.id === clipId);
       if (clip && sliceTicks > clip.timelineStartTicks && sliceTicks < clip.timelineStartTicks + clip.durationTicks) {
-        await editorStore.executeCommand(new SplitClipCommand(clip.id, sliceTicks));
+        const cmd = new SplitClipCommand(clip.id, sliceTicks);
+        const success = await editorStore.executeCommand(cmd);
+        if (success && cmd.createdResult) {
+          timelineStore.selectClip(cmd.createdResult.rightClip.id);
+        }
         setRazorHover(null);
         break;
       }
@@ -1268,9 +1312,9 @@ export const TimelineView: React.FC = () => {
           {/* Split at Playhead */}
           <button
             onClick={handleSplitAtPlayhead}
-            disabled={selectedClipIds.length === 0}
+            disabled={!canSplitAtPlayhead}
             className="kuro-btn kuro-btn-secondary px-2 py-0.5 text-[11px] font-medium flex items-center gap-1 disabled:opacity-30"
-            title="Split Selected Clip at Playhead (Ctrl+K)"
+            title="Split at Playhead (Ctrl+K)"
           >
             <Scissors className="w-3 h-3" />
             <span>Split</span>
