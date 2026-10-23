@@ -58,6 +58,8 @@ export const TimelineView: React.FC = () => {
     clipKind: 'video' | 'audio';
     durationTicks: number;
   } | null>(null);
+  const movingClipRef = useRef<typeof movingClip>(null);
+  useEffect(() => { movingClipRef.current = movingClip; }, [movingClip]);
 
   // Interactive Edge Trimming State (Extending or Compressing Duration)
   // Track Height Resizing State (Extending Layer in Y)
@@ -77,6 +79,8 @@ export const TimelineView: React.FC = () => {
     currentDurationTicks: number;
     startX: number;
   } | null>(null);
+  const trimmingClipRef = useRef<typeof trimmingClip>(null);
+  useEffect(() => { trimmingClipRef.current = trimmingClip; }, [trimmingClip]);
 
 
   // Speed selection dropdown visibility
@@ -520,25 +524,26 @@ export const TimelineView: React.FC = () => {
     };
 
     const handleMouseUp = async () => {
-      if (trimmingClip) {
-        const deltaStart = trimmingClip.currentStartTicks - trimmingClip.initialStartTicks;
-        const deltaDur = trimmingClip.currentDurationTicks - trimmingClip.initialDurationTicks;
+      const tc = trimmingClipRef.current;
+      if (tc) {
+        const deltaStart = tc.currentStartTicks - tc.initialStartTicks;
+        const deltaDur = tc.currentDurationTicks - tc.initialDurationTicks;
 
-        if (trimmingClip.edge === 'start' && deltaStart !== 0) {
-          const cmd = new TrimClipCommand(trimmingClip.clipId, 'start', deltaStart);
+        if (tc.edge === 'start' && deltaStart !== 0) {
+          const cmd = new TrimClipCommand(tc.clipId, 'start', deltaStart);
           const success = await editorStore.executeCommand(cmd);
           if (!success) {
             const currentProj = editorStore.getProject();
             const updatedTracks = currentProj.tracks.map((t) => {
-              if (t.id !== trimmingClip.trackId) return t;
+              if (t.id !== tc.trackId) return t;
               return {
                 ...t,
                 clips: t.clips.map((c) =>
-                  c.id === trimmingClip.clipId
+                  c.id === tc.clipId
                     ? {
                         ...c,
-                        timelineStartTicks: trimmingClip.currentStartTicks,
-                        durationTicks: trimmingClip.currentDurationTicks,
+                        timelineStartTicks: tc.currentStartTicks,
+                        durationTicks: tc.currentDurationTicks,
                         sourceInTicks: (c.sourceInTicks ?? 0) + deltaStart,
                         sourceOutTicks: c.sourceOutTicks ?? ((c.sourceInTicks ?? 0) + c.durationTicks),
                       }
@@ -548,20 +553,20 @@ export const TimelineView: React.FC = () => {
             });
             editorStore.getEditorState().setProject({ ...currentProj, tracks: updatedTracks });
           }
-        } else if (trimmingClip.edge === 'end' && deltaDur !== 0) {
-          const cmd = new TrimClipCommand(trimmingClip.clipId, 'end', deltaDur);
+        } else if (tc.edge === 'end' && deltaDur !== 0) {
+          const cmd = new TrimClipCommand(tc.clipId, 'end', deltaDur);
           const success = await editorStore.executeCommand(cmd);
           if (!success) {
             const currentProj = editorStore.getProject();
             const updatedTracks = currentProj.tracks.map((t) => {
-              if (t.id !== trimmingClip.trackId) return t;
+              if (t.id !== tc.trackId) return t;
               return {
                 ...t,
                 clips: t.clips.map((c) =>
-                  c.id === trimmingClip.clipId
+                  c.id === tc.clipId
                     ? {
                         ...c,
-                        durationTicks: trimmingClip.currentDurationTicks,
+                        durationTicks: tc.currentDurationTicks,
                         sourceInTicks: c.sourceInTicks ?? 0,
                         sourceOutTicks: (c.sourceOutTicks ?? ((c.sourceInTicks ?? 0) + c.durationTicks)) + deltaDur,
                       }
@@ -660,18 +665,19 @@ export const TimelineView: React.FC = () => {
     };
 
     const handleMouseUp = async () => {
-      if (movingClip) {
-        if (movingClip.targetTrackId === 'new_video') {
+      const mc = movingClipRef.current;
+      if (mc) {
+        if (mc.targetTrackId === 'new_video') {
           const newTrackId = handleAddVideoTrack();
-          await moveClipSafely(movingClip.clipId, movingClip.currentTicks, newTrackId);
-        } else if (movingClip.targetTrackId === 'new_audio') {
+          await moveClipSafely(mc.clipId, mc.currentTicks, newTrackId);
+        } else if (mc.targetTrackId === 'new_audio') {
           const newTrackId = handleAddAudioTrack();
-          await moveClipSafely(movingClip.clipId, movingClip.currentTicks, newTrackId);
+          await moveClipSafely(mc.clipId, mc.currentTicks, newTrackId);
         } else if (
-          movingClip.targetTrackId !== movingClip.originalTrackId ||
-          movingClip.currentTicks !== movingClip.originalTicks
+          mc.targetTrackId !== mc.originalTrackId ||
+          mc.currentTicks !== mc.originalTicks
         ) {
-          await moveClipSafely(movingClip.clipId, movingClip.currentTicks, movingClip.targetTrackId);
+          await moveClipSafely(mc.clipId, mc.currentTicks, mc.targetTrackId);
         }
       }
       setMovingClip(null);
