@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { editorStore } from '../../stores/useEditorStore';
 import { timelineStore } from '../../stores/useTimelineStore';
 import { layoutStore } from '../../stores/useLayoutStore';
+import { TransformBox } from './TransformBox';
 import { formatTimecode } from '@kuro/shared';
 import {
   Play,
@@ -42,17 +43,34 @@ function computeFilterStyle(clip?: any): string | undefined {
   const filters: string[] = [];
   for (const eff of clip.effects) {
     if (!eff.enabled) continue;
-    const val = Number(eff.parameters.value ?? 1);
+    const val = Number(eff.parameters.value ?? 0);
     if (eff.effectType === 'brightness') filters.push(`brightness(${val})`);
     if (eff.effectType === 'contrast') filters.push(`contrast(${val})`);
     if (eff.effectType === 'saturation') filters.push(`saturate(${val})`);
-    if (eff.effectType === 'blur') filters.push(`blur(${val}px)`);
-    if (eff.effectType === 'temperature') {
-      if (val > 0) filters.push(`sepia(${val * 0.005}) hue-rotate(-${val * 0.15}deg)`);
-      else filters.push(`hue-rotate(${Math.abs(val) * 0.25}deg)`);
+    if (eff.effectType === 'blur' && val > 0) filters.push(`blur(${val}px)`);
+    if (eff.effectType === 'exposure' && val !== 0) {
+      // Exposure EV to brightness multiplier: 2^EV
+      filters.push(`brightness(${Math.pow(2, val).toFixed(3)})`);
     }
-    if (eff.effectType === 'tint') {
-      filters.push(`hue-rotate(${val * 0.5}deg)`);
+    if (eff.effectType === 'temperature' && val !== 0) {
+      if (val > 0) filters.push(`sepia(${val * 0.004}) hue-rotate(-${val * 0.12}deg)`);
+      else filters.push(`hue-rotate(${Math.abs(val) * 0.2}deg)`);
+    }
+    if (eff.effectType === 'tint' && val !== 0) {
+      filters.push(`hue-rotate(${val * 0.4}deg)`);
+    }
+    if (eff.effectType === 'hue' && val !== 0) {
+      filters.push(`hue-rotate(${val}deg)`);
+    }
+    if (eff.effectType === 'sepia' && val > 0) {
+      filters.push(`sepia(${val / 100})`);
+    }
+    if (eff.effectType === 'invert' && val > 0) {
+      filters.push(`invert(${val / 100})`);
+    }
+    if (eff.effectType === 'vignette' && val > 0) {
+      // Subtle contrast + brightness edge simulation in CSS
+      filters.push(`drop-shadow(0 0 ${val * 0.8}px rgba(0,0,0,${val * 0.01}))`);
     }
   }
   return filters.length > 0 ? filters.join(' ') : undefined;
@@ -60,7 +78,24 @@ function computeFilterStyle(clip?: any): string | undefined {
 
 export const PreviewMonitor: React.FC = () => {
   const [, setTick] = useState(0);
-  const [showSafeGuides, setShowSafeGuides] = useState(false);
+    const [showSafeGuides, setShowSafeGuides] = useState(false);
+  const [showTransformOverlay, setShowTransformOverlay] = useState(true);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [canvasDim, setCanvasDim] = useState({ width: 640, height: 360 });
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setCanvasDim({
+          width: entry.contentRect.width || 640,
+          height: entry.contentRect.height || 360,
+        });
+      }
+    });
+    ro.observe(canvasRef.current);
+    return () => ro.disconnect();
+  }, []);
   const [previewQuality, setPreviewQuality] = useState<'1080p' | '720p' | '540p'>('1080p');
   const [monitorVolume, setMonitorVolume] = useState(1.0);
   const [isMuted, setIsMuted] = useState(false);
@@ -106,6 +141,57 @@ export const PreviewMonitor: React.FC = () => {
   const project = editorStore.getProject();
   const playheadTicks = timelineStore.getPlayheadTicks();
   const isPlaying = timelineStore.getIsPlaying();
+  const selectedClipIds = timelineStore.getSelectedClipIds();
+  const activeSelectedClipId = selectedClipIds[0];
+
+  // Find currently selected clip if active at playhead or on visual tracks
+  const selectedVisualClip = useMemo(() => {
+    if (!activeSelectedClipId) return null;
+    for (const track of project.tracks) {
+      if (track.kind === 'audio') continue;
+      const found = track.clips.find((c) => c.id === activeSelectedClipId);
+      if (found) {
+        const asset = project.assets.find((a) => a.id === found.assetId);
+        return { clip: found, asset, track };
+      }
+    }
+    return null;
+  }, [project, activeSelectedClipId]);
+
+  const handleUpdateSelectedTransform = (newT: Partial<any>) => {
+    if (!selectedVisualClip) return;
+    const current = selectedVisualClip.clip.transform || {
+      x: 0,
+      y: 0,
+      scaleX: 1.0,
+      scaleY: 1.0,
+      rotation: 0,
+      opacity: 1.0,
+      flipH: false,
+      flipV: false,
+      blendMode: 'normal',
+      fit: 'contain',
+    };
+    const updatedClip = {
+      ...selectedVisualClip.clip,
+      transform: {
+        ...current,
+        ...newT,
+      },
+    };
+    const newTracks = project.tracks.map((t) => {
+      if (t.id !== selectedVisualClip.track.id) return t;
+      return {
+        ...t,
+        clips: t.clips.map((c) => (c.id === updatedClip.id ? updatedClip : c)),
+      };
+    });
+    editorStore.getEditorState().setProject({
+      ...project,
+      tracks: newTracks,
+    });
+  };
+
 
   // ─── Compute all video track states at playhead ────────────────────────────
   // For each video track: what clip (if any) is at the playhead?
@@ -450,6 +536,7 @@ export const PreviewMonitor: React.FC = () => {
       {/* ── Multi-Layer Composited Viewport ── */}
       <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-2 relative overflow-hidden bg-[var(--kuro-bg-canvas)]">
         <div
+          ref={canvasRef}
           className="relative rounded border border-[var(--kuro-border-subtle)] shadow-2xl overflow-hidden bg-black"
           style={{
             maxWidth: '100%',
@@ -591,6 +678,25 @@ export const PreviewMonitor: React.FC = () => {
                 SAFE AREA 90%
               </div>
             </div>
+          )}
+
+                    {/* Interactive On-Screen Transform Controls for Selected Element */}
+          {showTransformOverlay && selectedVisualClip && (
+            <TransformBox
+              clipId={selectedVisualClip.clip.id}
+              clipName={selectedVisualClip.asset?.name || 'Selected Element'}
+              transform={selectedVisualClip.clip.transform || {
+                x: 0,
+                y: 0,
+                scaleX: 1.0,
+                scaleY: 1.0,
+                rotation: 0,
+                opacity: 1.0,
+              }}
+              containerWidth={canvasDim.width}
+              containerHeight={canvasDim.height}
+              onUpdateTransform={handleUpdateSelectedTransform}
+            />
           )}
 
           {/* Playing indicator */}

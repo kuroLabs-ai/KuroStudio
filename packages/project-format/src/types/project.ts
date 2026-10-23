@@ -60,7 +60,7 @@ export interface ClipAudio {
 
 export interface EffectInstance {
   id: string;
-  effectType: 'brightness' | 'contrast' | 'saturation' | 'opacity' | 'blur' | 'lut' | 'temperature' | 'tint' | 'vignette' | 'sharpen';
+  effectType: 'brightness' | 'contrast' | 'saturation' | 'opacity' | 'blur' | 'lut' | 'temperature' | 'tint' | 'vignette' | 'sharpen' | 'exposure' | 'highlights' | 'shadows' | 'hue' | 'sepia' | 'invert';
   enabled: boolean;
   parameters: Record<string, number | string | boolean>;
 }
