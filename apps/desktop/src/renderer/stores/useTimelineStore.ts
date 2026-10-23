@@ -92,12 +92,18 @@ class TimelineStore {
   }
 
   public setIsPlaying(playing: boolean): void {
+    if (playing && this._durationTicks > 0 && this.playheadTicks >= this._durationTicks) {
+      this.playheadTicks = 0;
+    }
     this.isPlaying = playing;
     this._syncRaf();
     this.notify();
   }
 
   public togglePlayback(): void {
+    if (!this.isPlaying && this._durationTicks > 0 && this.playheadTicks >= this._durationTicks) {
+      this.playheadTicks = 0;
+    }
     this.isPlaying = !this.isPlaying;
     this._syncRaf();
     this.notify();

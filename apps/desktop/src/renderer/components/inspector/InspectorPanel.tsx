@@ -277,18 +277,18 @@ export const InspectorPanel: React.FC = () => {
       </div>
 
       {/* ── Inspector Category Tabs Bar (Video / Audio / Color / Speed / Text) ── */}
-      <div className="flex items-center border-b border-[var(--kuro-border-subtle)] bg-[var(--kuro-bg-canvas)] px-2 pt-1 gap-1 shrink-0 overflow-x-auto select-none">
+      <div className="flex items-center border-b border-[var(--kuro-border-subtle)] bg-[var(--kuro-bg-canvas)] px-2.5 py-1.5 gap-1 shrink-0 overflow-x-auto select-none no-scrollbar">
         {/* Video Tab (hide if pure audio track) */}
         {!isAudioTrack && (
           <button
             onClick={() => setActiveTab('video')}
-            className={`px-2.5 py-1.5 rounded-t text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer border-t-2 ${
+            className={`px-3 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
               activeTab === 'video'
-                ? 'bg-[var(--kuro-bg-panel)] text-white border-white'
-                : 'text-[var(--kuro-text-muted)] hover:text-white border-transparent'
+                ? 'bg-white text-black shadow-sm font-bold'
+                : 'text-[var(--kuro-text-muted)] hover:text-white hover:bg-[var(--kuro-bg-surface)]'
             }`}
           >
-            <Video className="w-3 h-3" />
+            <Video className="w-3.5 h-3.5" />
             <span>Video</span>
           </button>
         )}
@@ -296,13 +296,13 @@ export const InspectorPanel: React.FC = () => {
         {/* Audio Tab */}
         <button
           onClick={() => setActiveTab('audio')}
-          className={`px-2.5 py-1.5 rounded-t text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer border-t-2 ${
+          className={`px-3 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
             activeTab === 'audio'
-              ? 'bg-[var(--kuro-bg-panel)] text-white border-white'
-              : 'text-[var(--kuro-text-muted)] hover:text-white border-transparent'
+              ? 'bg-white text-black shadow-sm font-bold'
+              : 'text-[var(--kuro-text-muted)] hover:text-white hover:bg-[var(--kuro-bg-surface)]'
           }`}
         >
-          <Music className="w-3 h-3" />
+          <Music className="w-3.5 h-3.5" />
           <span>Audio</span>
         </button>
 
@@ -310,13 +310,13 @@ export const InspectorPanel: React.FC = () => {
         {!isAudioTrack && (
           <button
             onClick={() => setActiveTab('color')}
-            className={`px-2.5 py-1.5 rounded-t text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer border-t-2 ${
+            className={`px-3 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
               activeTab === 'color'
-                ? 'bg-[var(--kuro-bg-panel)] text-white border-white'
-                : 'text-[var(--kuro-text-muted)] hover:text-white border-transparent'
+                ? 'bg-white text-black shadow-sm font-bold'
+                : 'text-[var(--kuro-text-muted)] hover:text-white hover:bg-[var(--kuro-bg-surface)]'
             }`}
           >
-            <Palette className="w-3 h-3" />
+            <Palette className="w-3.5 h-3.5" />
             <span>Color</span>
           </button>
         )}
@@ -324,13 +324,13 @@ export const InspectorPanel: React.FC = () => {
         {/* Speed Tab */}
         <button
           onClick={() => setActiveTab('speed')}
-          className={`px-2.5 py-1.5 rounded-t text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer border-t-2 ${
+          className={`px-3 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
             activeTab === 'speed'
-              ? 'bg-[var(--kuro-bg-panel)] text-white border-white'
-              : 'text-[var(--kuro-text-muted)] hover:text-white border-transparent'
+              ? 'bg-white text-black shadow-sm font-bold'
+              : 'text-[var(--kuro-text-muted)] hover:text-white hover:bg-[var(--kuro-bg-surface)]'
           }`}
         >
-          <Gauge className="w-3 h-3" />
+          <Gauge className="w-3.5 h-3.5" />
           <span>Speed</span>
         </button>
 
@@ -338,13 +338,13 @@ export const InspectorPanel: React.FC = () => {
         {isTitle && (
           <button
             onClick={() => setActiveTab('text')}
-            className={`px-2.5 py-1.5 rounded-t text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer border-t-2 ${
+            className={`px-3 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
               activeTab === 'text'
-                ? 'bg-[var(--kuro-bg-panel)] text-white border-white'
-                : 'text-[var(--kuro-text-muted)] hover:text-white border-transparent'
+                ? 'bg-white text-black shadow-sm font-bold'
+                : 'text-[var(--kuro-text-muted)] hover:text-white hover:bg-[var(--kuro-bg-surface)]'
             }`}
           >
-            <Type className="w-3 h-3" />
+            <Type className="w-3.5 h-3.5" />
             <span>Text</span>
           </button>
         )}

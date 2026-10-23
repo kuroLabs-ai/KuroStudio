@@ -518,6 +518,12 @@ export const PreviewMonitor: React.FC = () => {
   };
 
   const handleTogglePlayback = () => {
+    // If at or past the end of timeline clips, replay from beginning
+    if (!isPlaying && totalTicks > 0 && playheadTicks >= totalTicks - ticksPerFrame) {
+      timelineStore.setPlayheadTicks(0);
+      timelineStore.setIsPlaying(true);
+      return;
+    }
     timelineStore.togglePlayback();
   };
 
