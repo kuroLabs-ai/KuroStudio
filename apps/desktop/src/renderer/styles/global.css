@@ -173,3 +173,76 @@ body {
 .studio-btn-ai {
   @apply kuro-btn-ai;
 }
+
+
+/* ==========================================================================
+   Professional Studio Range Sliders (.kuro-range / input[type="range"])
+   ========================================================================== */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--kuro-border-base);
+  border-radius: 9999px;
+  outline: none;
+  margin: 6px 0;
+  transition: all 120ms ease;
+  cursor: pointer;
+}
+
+input[type="range"]:hover {
+  background: var(--kuro-border-strong);
+}
+
+/* Webkit Slider Thumb */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--kuro-text-primary);
+  border: 2px solid var(--kuro-bg-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  cursor: grab;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15);
+}
+
+input[type="range"]:active::-webkit-slider-thumb {
+  cursor: grabbing;
+  transform: scale(1.3);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.25);
+}
+
+/* Firefox Slider Thumb */
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--kuro-text-primary);
+  border: 2px solid var(--kuro-bg-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  cursor: grab;
+  transition: transform 120ms ease;
+}
+
+input[type="range"]:hover::-moz-range-thumb {
+  transform: scale(1.15);
+}
+
+input[type="range"]:active::-moz-range-thumb {
+  cursor: grabbing;
+  transform: scale(1.3);
+}
+
+/* Accessible focus ring */
+input[type="range"]:focus-visible {
+  outline: 1px solid var(--kuro-border-strong);
+  outline-offset: 3px;
+}

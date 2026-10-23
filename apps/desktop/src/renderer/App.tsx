@@ -20,9 +20,25 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Space: Toggle Playback
+      // Space: Toggle Playback (Replay from start if at end of video)
       if (e.code === 'Space') {
         e.preventDefault();
+        const project = editorStore.getProject();
+        const totalTicks = project.tracks.reduce(
+          (max, t) => t.clips.reduce((m, c) => Math.max(m, c.timelineStartTicks + c.durationTicks), max),
+          0
+        );
+        const playhead = timelineStore.getPlayheadTicks();
+        const isPlaying = timelineStore.getIsPlaying();
+        const fps = project.fpsNumerator / project.fpsDenominator;
+        const ticksPerFrame = Math.round(project.timelineTimebase / fps);
+
+        if (!isPlaying && totalTicks > 0 && playhead >= totalTicks - ticksPerFrame) {
+          timelineStore.setPlayheadTicks(0);
+          timelineStore.setIsPlaying(true);
+          return;
+        }
+
         timelineStore.togglePlayback();
         return;
       }
